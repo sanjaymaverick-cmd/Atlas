@@ -8,6 +8,11 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from atlas.modules.commercial.contracts import (
+    CommercialConflictError,
+    CommercialNotAuthorisedError,
+    CommercialNotFoundError,
+)
 from atlas.modules.compliance.contracts import (
     ComplianceConflictError,
     ComplianceNotAuthorisedError,
@@ -51,6 +56,7 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(DocumentNotAuthorisedError)
     @app.exception_handler(LandNotAuthorisedError)
     @app.exception_handler(ComplianceNotAuthorisedError)
+    @app.exception_handler(CommercialNotAuthorisedError)
     async def forbidden_handler(request: Request, exc: Exception) -> JSONResponse:
         return JSONResponse(
             status_code=403,
@@ -61,6 +67,7 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(DocumentNotFoundError)
     @app.exception_handler(LandNotFoundError)
     @app.exception_handler(ComplianceNotFoundError)
+    @app.exception_handler(CommercialNotFoundError)
     async def not_found_handler(request: Request, exc: Exception) -> JSONResponse:
         return JSONResponse(status_code=404, content=error_body("not_found", str(exc)))
 
@@ -68,6 +75,7 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(DocumentConflictError)
     @app.exception_handler(LandConflictError)
     @app.exception_handler(ComplianceConflictError)
+    @app.exception_handler(CommercialConflictError)
     async def conflict_handler(request: Request, exc: Exception) -> JSONResponse:
         return JSONResponse(status_code=409, content=error_body("conflict", str(exc)))
 

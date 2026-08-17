@@ -14,6 +14,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from atlas.api import application
 from atlas.api.application import create_app
+from atlas.modules.commercial.schemas import BudgetCreate, BudgetSummary
 from atlas.modules.compliance.schemas import (
     ComplianceObligationCreate,
     ComplianceObligationSummary,
@@ -295,6 +296,26 @@ class FakeCompliance:
         )
 
 
+class FakeCommercial:
+    def __init__(self) -> None:
+        self.calls: list[BudgetCreate] = []
+
+    async def create_budget(
+        self, session: object, *, actor_user_id: UUID, data: BudgetCreate
+    ) -> BudgetSummary:
+        self.calls.append(data)
+        return BudgetSummary(
+            uuid4(),
+            data.project_id,
+            data.legal_entity_id,
+            data.total_amount,
+            "draft",
+            None,
+            1,
+            None,
+        )
+
+
 class FakeDocuments:
     def __init__(self) -> None:
         self.failure: Exception | None = None
@@ -526,6 +547,7 @@ def build_client(
     documents: FakeDocuments | None = None,
     land: FakeLand | None = None,
     compliance: FakeCompliance | None = None,
+    commercial: FakeCommercial | None = None,
 ) -> tuple[httpx.AsyncClient, FakeOrganization, FakeSessionFactory]:
     fake_organization = organization or FakeOrganization()
     session_factory = FakeSessionFactory()
@@ -537,6 +559,7 @@ def build_client(
         documents_service=documents or FakeDocuments(),
         land_service=land or FakeLand(),  # type: ignore[arg-type]
         compliance_service=compliance or FakeCompliance(),  # type: ignore[arg-type]
+        commercial_service=commercial or FakeCommercial(),  # type: ignore[arg-type]
         relying_party=RelyingParty(
             rp_id="localhost", rp_name="Atlas Test", origin="http://localhost"
         ),
@@ -579,6 +602,21 @@ async def test_phase3_routes_delegate_to_published_contracts() -> None:
     assert obligation.json()["status"] == "open"
     assert compliance.calls[0].project_id == PROJECT_ID
     assert [session.commits for session in sessions.sessions] == [1, 1]
+
+
+async def test_phase4_budget_route_delegates_to_commercial_contract() -> None:
+    commercial = FakeCommercial()
+    client, _, sessions = build_client(commercial=commercial)
+    async with client:
+        response = await client.post(
+            f"/api/v1/projects/{PROJECT_ID}/budgets",
+            json={"legal_entity_id": str(ENTITY_ID), "total_amount": "250000.00"},
+        )
+    assert response.status_code == 201
+    assert response.json()["status"] == "draft"
+    assert commercial.calls[0].project_id == PROJECT_ID
+    assert commercial.calls[0].legal_entity_id == ENTITY_ID
+    assert sessions.sessions[0].commits == 1
 
 
 async def test_health_and_readiness_do_not_expose_configuration() -> None:

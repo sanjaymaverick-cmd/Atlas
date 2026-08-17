@@ -75,6 +75,32 @@ off before production data or users are introduced.
   confidence thresholds, and authority-boundary red-team remain mandatory
   gates before Phase 11.
 
+## Phase 4 — Budgets, procurement, contracts, and vendor onboarding
+
+- [ ] Approve budget and purchase-order approval thresholds, segregation of
+  duties, delegated authority, amendment rules, and four-eyes requirements.
+- [ ] Define vendor activation/suspension ownership and verify that no purchase
+  order can be issued until onboarding is active and required compliance
+  evidence is current.
+- [ ] Classify PAN, GST, bank verification, labour registrations, insurance
+  policies, contacts, and KYC evidence. Approve masking, retention, access,
+  export, breach-notification, and data-subject procedures with legal/privacy
+  advisers.
+- [ ] Raw KYC, bank proof, cheque images, signatures, credentials, and account
+  numbers must never appear in operational fields, logs, fixtures, or audit
+  payloads. Store evidence as restricted Documents records with controlled
+  preview/export; migrate and remove the provisional `object_storage_key` field
+  before production.
+- [ ] Select an e-signature provider and approve identity assurance, webhook
+  signature verification, replay protection, evidence retention, data
+  residency, and provider-failure/manual fallback procedures.
+- [ ] Approve contract/PO cancellation, supersession, dispute, payment, and
+  expiry workflows. Confirm whether issued financial commitments require fresh
+  passkey step-up and independent approval.
+- [ ] Review provisional invariants: one onboarding record per vendor,
+  non-negative monetary/quantity fields, immutable executed-document evidence,
+  and archival instead of deletion.
+
 ## Phase 3 — Land, legal, financing, and compliance
 
 - [ ] Approve the due-diligence checklist taxonomy, mandatory categories,

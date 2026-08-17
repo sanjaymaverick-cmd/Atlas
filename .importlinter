@@ -155,3 +155,32 @@ forbidden_modules =
     atlas.modules.audit
     atlas.modules.documents.models
     atlas.modules.documents.service
+
+[importlinter:contract:commercial-private]
+name = Commercial internals are private to the commercial module
+type = forbidden
+source_modules =
+    atlas.modules.identity
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.documents
+    atlas.modules.land
+    atlas.modules.compliance
+    atlas.owner_console
+forbidden_modules =
+    atlas.modules.commercial.models
+    atlas.modules.commercial.service
+allow_indirect_imports = true
+
+[importlinter:contract:commercial-independent]
+name = Commercial depends only on Identity contracts and platform services
+type = forbidden
+source_modules =
+    atlas.modules.commercial
+forbidden_modules =
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.documents.models
+    atlas.modules.documents.service
+    atlas.modules.land
+    atlas.modules.compliance

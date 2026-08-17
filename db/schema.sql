@@ -560,7 +560,12 @@ CREATE TABLE budget.budgets (
   status          TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','submitted','approved','revised')),
   approved_at     TIMESTAMPTZ,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by      UUID REFERENCES identity.users(id),
+  updated_by      UUID REFERENCES identity.users(id),
+  version         INTEGER NOT NULL DEFAULT 1,
+  archived_at     TIMESTAMPTZ,
+  CHECK (total_amount >= 0)
 );
 
 CREATE TABLE budget.budget_lines (
@@ -573,7 +578,12 @@ CREATE TABLE budget.budget_lines (
   actual_amount    NUMERIC(16,2) NOT NULL DEFAULT 0,
   status           TEXT NOT NULL DEFAULT 'active',
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by       UUID REFERENCES identity.users(id),
+  updated_by       UUID REFERENCES identity.users(id),
+  version          INTEGER NOT NULL DEFAULT 1,
+  archived_at      TIMESTAMPTZ,
+  CHECK (planned_amount >= 0 AND committed_amount >= 0 AND actual_amount >= 0)
 );
 
 CREATE INDEX idx_budget_lines_budget ON budget.budget_lines(budget_id);
@@ -594,6 +604,10 @@ CREATE TABLE procurement.purchase_orders (
   issued_at      TIMESTAMPTZ,
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by     UUID REFERENCES identity.users(id),
+  updated_by     UUID REFERENCES identity.users(id),
+  version        INTEGER NOT NULL DEFAULT 1,
+  archived_at    TIMESTAMPTZ,
   -- Vendor must be Active (see vendor_onboarding.vendor_onboardings) before a PO can be issued;
   -- enforced at application layer per Blueprint §11 Vendor Onboarding Workflow.
   CONSTRAINT chk_po_amount_nonneg CHECK (total_amount >= 0)
@@ -607,7 +621,15 @@ CREATE TABLE procurement.purchase_order_lines (
   quantity          NUMERIC(16,4),
   unit_price        NUMERIC(14,2),
   amount            NUMERIC(16,2),
-  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by        UUID REFERENCES identity.users(id),
+  updated_by        UUID REFERENCES identity.users(id),
+  version           INTEGER NOT NULL DEFAULT 1,
+  archived_at       TIMESTAMPTZ,
+  CHECK (quantity IS NULL OR quantity >= 0),
+  CHECK (unit_price IS NULL OR unit_price >= 0),
+  CHECK (amount IS NULL OR amount >= 0)
 );
 
 -- =====================================================================
@@ -628,7 +650,12 @@ CREATE TABLE contracts.contracts (
   executed_at         TIMESTAMPTZ,
   executed_document_id UUID REFERENCES documents.documents(id),
   created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by          UUID REFERENCES identity.users(id),
+  updated_by          UUID REFERENCES identity.users(id),
+  version             INTEGER NOT NULL DEFAULT 1,
+  archived_at         TIMESTAMPTZ,
+  CHECK (value IS NULL OR value >= 0)
 );
 
 CREATE TABLE contracts.contract_milestones (
@@ -639,7 +666,12 @@ CREATE TABLE contracts.contract_milestones (
   amount       NUMERIC(14,2),
   status       TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','due','paid','disputed')),
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by   UUID REFERENCES identity.users(id),
+  updated_by   UUID REFERENCES identity.users(id),
+  version      INTEGER NOT NULL DEFAULT 1,
+  archived_at  TIMESTAMPTZ,
+  CHECK (amount IS NULL OR amount >= 0)
 );
 
 -- =====================================================================
@@ -1252,7 +1284,12 @@ CREATE TABLE vendor_onboarding.vendor_onboardings (
   approved_at                 TIMESTAMPTZ,
   approved_by                 UUID REFERENCES identity.users(id),
   created_at                  TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at                  TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at                  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by                  UUID REFERENCES identity.users(id),
+  updated_by                  UUID REFERENCES identity.users(id),
+  version                     INTEGER NOT NULL DEFAULT 1,
+  archived_at                 TIMESTAMPTZ,
+  UNIQUE (vendor_id)
 );
 
 CREATE TABLE vendor_onboarding.kyc_records (
@@ -1264,7 +1301,13 @@ CREATE TABLE vendor_onboarding.kyc_records (
   verification_status TEXT NOT NULL DEFAULT 'pending' CHECK (verification_status IN ('pending','verified','rejected')),
   verified_by         UUID REFERENCES identity.users(id),
   verified_at         TIMESTAMPTZ,
-  created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+  evidence_document_id UUID REFERENCES documents.documents(id),
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by          UUID REFERENCES identity.users(id),
+  updated_by          UUID REFERENCES identity.users(id),
+  version             INTEGER NOT NULL DEFAULT 1,
+  archived_at         TIMESTAMPTZ
 );
 
 CREATE TABLE vendor_onboarding.insurance_policies (
@@ -1280,7 +1323,12 @@ CREATE TABLE vendor_onboarding.insurance_policies (
   valid_to       DATE,
   status         TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','expired','claimed','cancelled')),
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by     UUID REFERENCES identity.users(id),
+  updated_by     UUID REFERENCES identity.users(id),
+  version        INTEGER NOT NULL DEFAULT 1,
+  archived_at    TIMESTAMPTZ,
+  CHECK (sum_insured IS NULL OR sum_insured >= 0)
 );
 
 CREATE TABLE vendor_onboarding.labour_compliance_records (
@@ -1293,7 +1341,11 @@ CREATE TABLE vendor_onboarding.labour_compliance_records (
   minimum_wage_evidence_ref     TEXT,
   status                        TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','compliant','non_compliant')),
   created_at                    TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at                    TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at                    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by                    UUID REFERENCES identity.users(id),
+  updated_by                    UUID REFERENCES identity.users(id),
+  version                       INTEGER NOT NULL DEFAULT 1,
+  archived_at                   TIMESTAMPTZ
 );
 
 CREATE INDEX idx_kyc_records_party ON vendor_onboarding.kyc_records(party_id);

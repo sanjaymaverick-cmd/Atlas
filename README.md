@@ -6,8 +6,9 @@ architecture and `db/schema.sql` for the PostgreSQL schema.
 
 ## Status
 
-**Phase 3 local implementation** — the Phase 1 foundation, Phase 2 document
-control, and Phase 3 land/compliance workflows are built locally.
+**Phase 4 local implementation** — the Phase 1 foundation, Phase 2 document
+control, Phase 3 land/compliance, and Phase 4 commercial workflows are built
+locally.
 
 Phase 0.5's spike decisions are recorded in `docs/phase-0.5-decision-memo.md`:
 the event and reporting-store choices adopt the blueprint's stated defaults;
@@ -51,6 +52,11 @@ legal approval lifecycles, loan/EMI/PDC obligations, RERA registrations, and
 statutory obligations. Lifecycle mutations are versioned and audited in the
 same transaction; invalid state jumps are rejected as conflicts.
 
+Phase 4 adds budgets and lines, gated vendor onboarding and KYC evidence,
+purchase orders, contracts and milestones, insurance, and labour-compliance
+records. Purchase orders cannot be issued until the vendor is active, and
+executed contracts require immutable document evidence.
+
 Plus the §15 nine-dimension access check, the secrets/KMS pluggability boundary
 for the undecided §25 item 2, module boundaries enforced by import-linter, and
 a CI pipeline covering lint, types, boundaries, tests, coverage and security.
@@ -63,7 +69,7 @@ passed; CI always runs them against PostgreSQL 16.
 
 ### Next
 
-Complete Phase 3 verification, then begin Phase 4 locally. Real WebAuthn UAT,
+Complete Phase 4 verification, then begin Phase 5 locally. Real WebAuthn UAT,
 encrypted production object storage, malware-scanner selection, staging, and DR
 provisioning remain pre-launch gates tracked in
 `docs/production-readiness-todo.md`.
@@ -74,7 +80,7 @@ provisioning remain pre-launch gates tracked in
 atlas/
   api/            FastAPI factory, dependencies, and thin HTTP adapters
   platform/       cross-cutting: db, secrets, kms, audit chain, access control
-  modules/        identity, organization, documents, land, compliance, audit
+  modules/        identity, organization, documents, land, compliance, commercial, audit
   owner_console/  admin API + CLI
 db/schema.sql     canonical PostgreSQL DDL, all domains
 docs/             blueprint, audit report, decision memo, module boundaries
@@ -144,6 +150,11 @@ Phase 3 operations are exposed under `/api/v1/land-parcels`, `/api/v1/loans`,
 paths rooted in their legal-entity or project scope. Reference numbers are
 operational metadata only; do not place account numbers, cheque images,
 credentials, or payment secrets in these fields.
+
+Phase 4 operations are under `/api/v1/budgets`, `/api/v1/purchase-orders`,
+`/api/v1/contracts`, and the vendor onboarding routes. KYC evidence must point
+to a restricted Documents record. Do not put account numbers, cheque images,
+signatures, credentials, or raw evidence into reference fields or API logs.
 
 The local filesystem adapter is for synthetic development content only. Review
 every item in `docs/production-readiness-todo.md` before introducing real data.
