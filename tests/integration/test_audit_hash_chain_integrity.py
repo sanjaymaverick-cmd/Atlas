@@ -169,9 +169,11 @@ class TestTamperDetection:
 
         assert verify_chain(_read_chain(db)) == 3
 
-        db.execute("ALTER TABLE audit.audit_events DISABLE TRIGGER trg_audit_no_update")
+        # session_replication_role rather than ALTER TABLE: the ALTER takes an
+        # ACCESS EXCLUSIVE lock that contends with any other open connection.
+        db.execute("SET session_replication_role = replica")
         db.execute("UPDATE audit.audit_events SET action = 'reject' WHERE seq = 2")
-        db.execute("ALTER TABLE audit.audit_events ENABLE TRIGGER trg_audit_no_update")
+        db.execute("SET session_replication_role = origin")
 
         with pytest.raises(ChainIntegrityError, match="has been altered") as exc:
             verify_chain(_read_chain(db))
@@ -182,9 +184,9 @@ class TestTamperDetection:
         _write(db, "organization", "projects", "update", {"code": "PRJ-2"})
         _write(db, "organization", "projects", "approve", {"code": "PRJ-3"})
 
-        db.execute("ALTER TABLE audit.audit_events DISABLE TRIGGER trg_audit_no_delete")
+        db.execute("SET session_replication_role = replica")
         db.execute("DELETE FROM audit.audit_events WHERE seq = 2")
-        db.execute("ALTER TABLE audit.audit_events ENABLE TRIGGER trg_audit_no_delete")
+        db.execute("SET session_replication_role = origin")
 
         with pytest.raises(ChainIntegrityError, match="gap in chain"):
             verify_chain(_read_chain(db))

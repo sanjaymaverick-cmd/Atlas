@@ -82,20 +82,31 @@ def _schema_applied(database_url: str) -> None:
         pytest.fail(f"applying schema.sql failed:\n{result.stderr}{result.stdout}")
 
 
+def reset_audit(conn: object) -> None:
+    """Clear the audit table and restart the chain.
+
+    ``audit.audit_events`` is append-only by design, so emptying it needs the
+    triggers out of the way. This uses ``session_replication_role = replica``
+    rather than ``ALTER TABLE ... DISABLE TRIGGER`` deliberately: the ALTER
+    takes an ACCESS EXCLUSIVE lock on the table, which deadlocks against any
+    other connection holding it — which is every test that also opens an
+    application session. ``session_replication_role`` is scoped to this
+    connection and takes no table lock at all.
+
+    A test-only affordance. Nothing in application code may do this; the
+    append-only property is the point.
+    """
+    conn.execute("SET session_replication_role = replica")  # type: ignore[attr-defined]
+    conn.execute("DELETE FROM audit.audit_events")  # type: ignore[attr-defined]
+    conn.execute("SET session_replication_role = origin")  # type: ignore[attr-defined]
+    conn.execute("ALTER SEQUENCE audit.audit_events_seq RESTART WITH 1")  # type: ignore[attr-defined]
+
+
 @pytest.fixture
 def db(database_url: str, _schema_applied: None) -> Iterator[object]:
-    """A psycopg-style connection with a clean audit table.
-
-    Truncating the audit table between tests would normally be impossible —
-    it is append-only by design — so the fixture drops and recreates the chain
-    state through the owning role instead. This is a test-only affordance and
-    is deliberately awkward: nothing in application code may do it.
-    """
+    """A psycopg connection with a clean audit chain."""
     import psycopg
 
     with psycopg.connect(database_url, autocommit=True) as conn:
-        conn.execute("ALTER TABLE audit.audit_events DISABLE TRIGGER trg_audit_no_delete")
-        conn.execute("DELETE FROM audit.audit_events")
-        conn.execute("ALTER TABLE audit.audit_events ENABLE TRIGGER trg_audit_no_delete")
-        conn.execute("ALTER SEQUENCE audit.audit_events_seq RESTART WITH 1")
+        reset_audit(conn)
         yield conn

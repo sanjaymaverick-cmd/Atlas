@@ -66,3 +66,22 @@ Stop the cluster with `pg_ctl -D "$PGDATA" stop`.
   unit suite still runs on a machine with no database. CI always sets it and
   runs `test_audit_hash_chain_integrity.py` by name, so a skip there cannot be
   mistaken for a pass.
+
+## WSL: keep the virtualenv off the Windows drive
+
+If the repository lives on a Windows drive (`/mnt/c`, `/mnt/d`, ...), create the
+virtualenv on the Linux filesystem instead:
+
+```bash
+make install ATLAS_VENV=~/.atlas-venv
+make test    ATLAS_VENV=~/.atlas-venv
+```
+
+DrvFs — the filesystem behind `/mnt/...` — has very high per-file latency, and
+SQLAlchemy is thousands of small modules. From `/mnt`, `import sqlalchemy` alone
+took **over 40 seconds** on the machine this was built on, with under 3 seconds
+of CPU: pytest appeared to hang before it ever opened a database connection.
+The same import from `~` takes well under a second once warm.
+
+Worth knowing because the symptom looks like a deadlock rather than slow I/O,
+and it sends you looking in the wrong place.

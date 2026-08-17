@@ -51,6 +51,11 @@ select = ["E", "F", "I", "N", "UP", "B", "S", "ASYNC", "RUF"]
 [tool.ruff.lint.per-file-ignores]
 "**/tests/**" = ["S101"]
 "tests/**" = ["S101"]
+# RUF012 wants __table_args__ annotated ClassVar, but SQLAlchemy's
+# DeclarativeBase declares it as an instance variable, so that annotation is an
+# illegal override and mypy rejects it. The linters disagree; mypy is right
+# about the library, so the ruff rule is disabled for the mapping files only.
+"**/models.py" = ["RUF012"]
 
 # ---------------------------------------------------------------------------
 # Type checking

@@ -7,15 +7,20 @@
 
 .PHONY: help install lint types boundaries test test-unit test-integration check clean
 
-VENV := .venv
+# On WSL with the repo on a Windows drive (/mnt/...), keep the virtualenv on the
+# Linux filesystem. DrvFs per-file latency makes importing a large package like
+# SQLAlchemy take 40s+ from /mnt, which reads as a hang rather than slowness.
+# Override with: make ATLAS_VENV=/path/to/venv <target>
+ATLAS_VENV ?= .venv
+VENV := $(ATLAS_VENV)
 PY   := $(VENV)/bin/python
 
 help:
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
 
 install: ## Create the venv and install the project with dev extras
-	uv venv --python 3.12
-	uv pip install -e ".[dev]"
+	uv venv --python 3.12 $(VENV)
+	VIRTUAL_ENV=$(VENV) uv pip install -e ".[dev]"
 
 lint: ## ruff check and format check
 	$(VENV)/bin/ruff check .
