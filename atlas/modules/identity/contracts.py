@@ -17,17 +17,19 @@ from __future__ import annotations
 from typing import Protocol
 from uuid import UUID
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from atlas.modules.identity.schemas import DeviceSummary, SessionContext, UserSummary
 
 
 class IdentityContract(Protocol):
     """What Organization, Audit and the owner console may call."""
 
-    async def get_user(self, user_id: UUID) -> UserSummary | None:
+    async def get_user(self, session: AsyncSession, user_id: UUID) -> UserSummary | None:
         """Return non-sensitive user details, or ``None`` if unknown."""
         ...
 
-    async def get_session(self, session_id: UUID) -> SessionContext | None:
+    async def get_session(self, session: AsyncSession, session_id: UUID) -> SessionContext | None:
         """Return the facts needed to authorise a request on this session.
 
         Returns ``None`` for an unknown session. A revoked or expired session
@@ -38,6 +40,7 @@ class IdentityContract(Protocol):
 
     async def check_scoped_role(
         self,
+        session: AsyncSession,
         *,
         user_id: UUID,
         permission_code: str,
@@ -57,6 +60,16 @@ class IdentityContract(Protocol):
         """
         ...
 
-    async def list_pending_devices(self) -> list[DeviceSummary]:
+    async def list_pending_devices(self, session: AsyncSession) -> list[DeviceSummary]:
         """Devices awaiting owner approval, for the owner console queue."""
+        ...
+
+    async def authenticate_session_token(
+        self, session: AsyncSession, token: str
+    ) -> SessionContext | None:
+        """Resolve an opaque bearer token to an active session.
+
+        The token is hashed inside Identity before lookup. Callers never see
+        the stored hash or Identity's session rows.
+        """
         ...

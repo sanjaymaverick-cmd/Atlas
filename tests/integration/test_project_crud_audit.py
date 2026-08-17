@@ -44,6 +44,7 @@ class StubIdentity:
 
     async def check_scoped_role(
         self,
+        session: AsyncSession,
         *,
         user_id: UUID,
         permission_code: str,
@@ -60,14 +61,25 @@ class StubIdentity:
         )
         return self.allow
 
-    async def get_user(self, user_id: UUID) -> UserSummary | None:  # pragma: no cover
+    async def get_user(
+        self, session: AsyncSession, user_id: UUID
+    ) -> UserSummary | None:  # pragma: no cover
         return None
 
-    async def get_session(self, session_id: UUID) -> SessionContext | None:  # pragma: no cover
+    async def get_session(
+        self, session: AsyncSession, session_id: UUID
+    ) -> SessionContext | None:  # pragma: no cover
         return None
 
-    async def list_pending_devices(self) -> list[DeviceSummary]:  # pragma: no cover
+    async def list_pending_devices(
+        self, session: AsyncSession
+    ) -> list[DeviceSummary]:  # pragma: no cover
         return []
+
+    async def authenticate_session_token(
+        self, session: AsyncSession, token: str
+    ) -> SessionContext | None:  # pragma: no cover
+        return None
 
 
 @pytest.fixture
@@ -271,6 +283,27 @@ class TestScoping:
         assert update_call["legal_entity_id"] == entity_id
         assert update_call["project_id"] == created.id
 
+    async def test_list_requires_entity_scoped_read_permission(
+        self, async_session: AsyncSession
+    ) -> None:
+        entity_id = await _seed_entity(async_session)
+        identity = StubIdentity(allow=False)
+        service = OrganizationService(identity)
+
+        with pytest.raises(NotAuthorisedError):
+            await service.list_projects(
+                async_session, actor_user_id=uuid4(), legal_entity_id=entity_id
+            )
+        assert identity.calls[0]["permission_code"] == "project.read"
+        assert identity.calls[0]["legal_entity_id"] == entity_id
+
+    async def test_list_rejects_an_unknown_legal_entity(self, async_session: AsyncSession) -> None:
+        service = OrganizationService(StubIdentity())
+        with pytest.raises(NotFoundError, match="legal entity"):
+            await service.list_projects(
+                async_session, actor_user_id=uuid4(), legal_entity_id=uuid4()
+            )
+
 
 class TestArchiveNotDelete:
     async def test_archived_project_still_exists(self, async_session: AsyncSession) -> None:
@@ -293,7 +326,12 @@ class TestArchiveNotDelete:
         assert (
             await service.get_project(async_session, actor_user_id=actor, project_id=created.id)
         ).id == created.id
-        assert await service.list_projects(async_session, legal_entity_id=entity_id) == []
+        assert (
+            await service.list_projects(
+                async_session, actor_user_id=actor, legal_entity_id=entity_id
+            )
+            == []
+        )
 
     async def test_archived_project_cannot_be_edited(self, async_session: AsyncSession) -> None:
         entity_id = await _seed_entity(async_session)

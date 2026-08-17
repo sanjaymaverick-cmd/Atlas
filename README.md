@@ -35,23 +35,30 @@ All seven Phase 1 items from `CLAUDE_CODE_KICKOFF.md`:
 6. **Owner console** with the break-glass secondary-admin flow, fully audited
 7. **Backup observability** — WAL archiving and object-storage sync assessed
    against the §3.2 RPO targets
+8. **FastAPI HTTP layer** — opaque bearer-session authentication, safe
+   health/readiness checks, and scoped project operations over the existing
+   services
 
 Plus the §15 nine-dimension access check, the secrets/KMS pluggability boundary
 for the undecided §25 item 2, module boundaries enforced by import-linter, and
 a CI pipeline covering lint, types, boundaries, tests, coverage and security.
 
-**181 tests, 92% coverage.**
+The test suite includes database-free service and HTTP contract tests plus
+PostgreSQL integration coverage for schema, audit, authentication, and project
+transactions. The current suite collects 207 tests; without
+`ATLAS_TEST_DATABASE_URL`, 171 pass and 36 PostgreSQL-dependent integration
+tests are reported as skipped rather than passed.
 
 ### Next
 
-Phase 1 remaining: FastAPI HTTP layer over the services, the WebAuthn ceremony
-against a real authenticator, and the DR/warm-standby infrastructure work
-(tracked, gated on §25 items 3 and 6).
+Phase 1 remaining: the WebAuthn ceremony against a real authenticator and the
+DR/warm-standby infrastructure work (tracked, gated on §25 items 3 and 6).
 
 ## Repository layout
 
 ```
 atlas/
+  api/            FastAPI factory, dependencies, and thin HTTP adapters
   platform/       cross-cutting: db, secrets, kms, audit chain, access control
   modules/        identity, organization, audit
   owner_console/  admin API + CLI
@@ -71,6 +78,35 @@ make check                         # everything CI runs
 Integration tests need PostgreSQL 14+ and `ATLAS_TEST_DATABASE_URL`. See
 `docs/local-postgres.md`, which includes a rootless setup for machines with
 neither Docker nor sudo.
+
+## HTTP API
+
+The production entry point is the application factory
+`atlas.api.application:create_default_app`. It requires an async SQLAlchemy
+database URL in `ATLAS_DATABASE_URL`:
+
+```bash
+export ATLAS_DATABASE_URL='postgresql+asyncpg://atlas:development-only@localhost/atlas'
+uvicorn atlas.api.application:create_default_app --factory --reload
+```
+
+The example credential is synthetic and local-only. Keep real database
+credentials in the configured secrets provider, not in source or shell history.
+
+Liveness is available at `GET /health/live`; readiness at
+`GET /health/ready` verifies database connectivity without returning a URL or
+credentials. Project operations are under `/api/v1` and require the existing
+opaque session token:
+
+```http
+Authorization: Bearer <opaque-session-token>
+```
+
+Run the database-free HTTP tests with:
+
+```bash
+.venv/bin/python -m pytest atlas/api/tests
+```
 
 ## Confidentiality
 

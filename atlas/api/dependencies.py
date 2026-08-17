@@ -1,0 +1,57 @@
+"""Per-request dependencies for sessions, authentication, and services."""
+
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
+from typing import Annotated, cast
+
+from fastapi import Depends, Request, Security
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from atlas.api.errors import UnauthenticatedError
+from atlas.modules.identity.contracts import IdentityContract
+from atlas.modules.identity.schemas import SessionContext
+from atlas.modules.organization.contracts import OrganizationContract
+
+
+@dataclass(frozen=True, slots=True)
+class ApiServices:
+    session_factory: async_sessionmaker[AsyncSession]
+    identity: IdentityContract
+    organization: OrganizationContract
+
+
+def get_services(request: Request) -> ApiServices:
+    return cast(ApiServices, request.app.state.services)
+
+
+async def get_session(
+    services: Annotated[ApiServices, Depends(get_services)],
+) -> AsyncIterator[AsyncSession]:
+    async with services.session_factory() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+
+
+bearer = HTTPBearer(auto_error=False)
+
+
+async def get_current_session(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Security(bearer)],
+    db_session: Annotated[AsyncSession, Depends(get_session)],
+    services: Annotated[ApiServices, Depends(get_services)],
+) -> SessionContext:
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise UnauthenticatedError
+    context = await services.identity.authenticate_session_token(
+        db_session, credentials.credentials
+    )
+    if context is None:
+        raise UnauthenticatedError
+    return context

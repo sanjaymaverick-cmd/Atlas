@@ -24,9 +24,11 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from atlas.modules.identity.contracts import IdentityContract
+from atlas.modules.organization.contracts import ConflictError, NotAuthorisedError, NotFoundError
 from atlas.modules.organization.models import LegalEntity, Project
 from atlas.modules.organization.schemas import (
     LegalEntitySummary,
@@ -35,15 +37,6 @@ from atlas.modules.organization.schemas import (
     ProjectUpdate,
 )
 from atlas.platform.audit.writer import record_event
-
-
-class NotAuthorisedError(Exception):
-    """Raised when the caller's roles do not reach the requested scope."""
-
-
-class NotFoundError(Exception):
-    """Raised when the named entity or project does not exist."""
-
 
 PERM_PROJECT_CREATE = "project.create"
 PERM_PROJECT_UPDATE = "project.update"
@@ -90,6 +83,7 @@ class OrganizationService:
 
     async def _require(
         self,
+        session: AsyncSession,
         *,
         actor_user_id: UUID,
         permission: str,
@@ -97,6 +91,7 @@ class OrganizationService:
         project_id: UUID | None,
     ) -> None:
         allowed = await self._identity.check_scoped_role(
+            session,
             user_id=actor_user_id,
             permission_code=permission,
             legal_entity_id=legal_entity_id,
@@ -117,6 +112,7 @@ class OrganizationService:
         if project is None:
             raise NotFoundError(f"project {project_id} does not exist")
         await self._require(
+            session,
             actor_user_id=actor_user_id,
             permission=PERM_PROJECT_READ,
             legal_entity_id=project.legal_entity_id,
@@ -141,9 +137,22 @@ class OrganizationService:
         )
 
     async def list_projects(
-        self, session: AsyncSession, *, legal_entity_id: UUID
+        self,
+        session: AsyncSession,
+        *,
+        actor_user_id: UUID,
+        legal_entity_id: UUID,
     ) -> list[ProjectSummary]:
         """Live projects in an entity. Archived ones are excluded."""
+        await self._require(
+            session,
+            actor_user_id=actor_user_id,
+            permission=PERM_PROJECT_READ,
+            legal_entity_id=legal_entity_id,
+            project_id=None,
+        )
+        if await session.get(LegalEntity, legal_entity_id) is None:
+            raise NotFoundError(f"legal entity {legal_entity_id} does not exist")
         result = await session.execute(
             select(Project)
             .where(Project.legal_entity_id == legal_entity_id)
@@ -162,6 +171,7 @@ class OrganizationService:
         data: ProjectCreate,
     ) -> ProjectSummary:
         await self._require(
+            session,
             actor_user_id=actor_user_id,
             permission=PERM_PROJECT_CREATE,
             legal_entity_id=data.legal_entity_id,
@@ -188,7 +198,10 @@ class OrganizationService:
             archived_at=None,
         )
         session.add(project)
-        await session.flush()
+        try:
+            await session.flush()
+        except IntegrityError as exc:
+            raise ConflictError("a project with this code already exists") from exc
 
         await record_event(
             session,
@@ -213,6 +226,7 @@ class OrganizationService:
         if project is None:
             raise NotFoundError(f"project {project_id} does not exist")
         await self._require(
+            session,
             actor_user_id=actor_user_id,
             permission=PERM_PROJECT_UPDATE,
             legal_entity_id=project.legal_entity_id,
@@ -230,7 +244,10 @@ class OrganizationService:
             setattr(project, field, value)
         project.version += 1
         project.updated_by = actor_user_id
-        await session.flush()
+        try:
+            await session.flush()
+        except IntegrityError as exc:
+            raise ConflictError("the project update conflicts with an existing record") from exc
 
         await record_event(
             session,
@@ -260,6 +277,7 @@ class OrganizationService:
         if project is None:
             raise NotFoundError(f"project {project_id} does not exist")
         await self._require(
+            session,
             actor_user_id=actor_user_id,
             permission=PERM_PROJECT_ARCHIVE,
             legal_entity_id=project.legal_entity_id,

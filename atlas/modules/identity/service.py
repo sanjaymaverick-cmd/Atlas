@@ -27,6 +27,7 @@ from atlas.modules.identity.break_glass import (
 from atlas.modules.identity.models import BreakGlassCredential, Device
 from atlas.modules.identity.schemas import DeviceSummary, SessionContext, UserSummary
 from atlas.modules.identity.scoping import any_grant_covers
+from atlas.modules.identity.sessions import hash_token, is_expired
 from atlas.platform.access_control import DeviceTrust
 from atlas.platform.audit.writer import record_event
 
@@ -78,6 +79,27 @@ class IdentityService:
             expires_at=row.expires_at,
             revoked_at=row.revoked_at,
         )
+
+    async def authenticate_session_token(
+        self, session: AsyncSession, token: str
+    ) -> SessionContext | None:
+        """Authenticate an opaque session token without exposing its hash."""
+        if not token:
+            return None
+        stored = await repo.get_session_by_token_hash(session, hash_token(token))
+        if stored is None:
+            return None
+        context = await self.get_session(session, stored.id)
+        if context is None:
+            return None
+        if (
+            context.revoked_at is not None
+            or is_expired(context.expires_at)
+            or context.user_status != "active"
+            or context.device_status != "active"
+        ):
+            return None
+        return context
 
     async def check_scoped_role(
         self,
