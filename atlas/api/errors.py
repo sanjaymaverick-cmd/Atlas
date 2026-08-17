@@ -8,6 +8,11 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from atlas.modules.change_control.contracts import (
+    ChangeControlConflictError,
+    ChangeControlNotAuthorisedError,
+    ChangeControlNotFoundError,
+)
 from atlas.modules.commercial.contracts import (
     CommercialConflictError,
     CommercialNotAuthorisedError,
@@ -69,6 +74,7 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(CommercialNotAuthorisedError)
     @app.exception_handler(ConstructionNotAuthorisedError)
     @app.exception_handler(ProjectControlsNotAuthorisedError)
+    @app.exception_handler(ChangeControlNotAuthorisedError)
     async def forbidden_handler(request: Request, exc: Exception) -> JSONResponse:
         return JSONResponse(
             status_code=403,
@@ -82,6 +88,7 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(CommercialNotFoundError)
     @app.exception_handler(ConstructionNotFoundError)
     @app.exception_handler(ProjectControlsNotFoundError)
+    @app.exception_handler(ChangeControlNotFoundError)
     async def not_found_handler(request: Request, exc: Exception) -> JSONResponse:
         return JSONResponse(status_code=404, content=error_body("not_found", str(exc)))
 
@@ -92,6 +99,7 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(CommercialConflictError)
     @app.exception_handler(ConstructionConflictError)
     @app.exception_handler(ProjectControlsConflictError)
+    @app.exception_handler(ChangeControlConflictError)
     async def conflict_handler(request: Request, exc: Exception) -> JSONResponse:
         return JSONResponse(status_code=409, content=error_body("conflict", str(exc)))
 

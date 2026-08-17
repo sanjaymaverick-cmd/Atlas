@@ -14,6 +14,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from atlas.api.auth import router as auth_router
+from atlas.api.change_control import router as change_control_router
 from atlas.api.commercial import router as commercial_router
 from atlas.api.compliance import router as compliance_router
 from atlas.api.construction import router as construction_router
@@ -23,6 +24,8 @@ from atlas.api.errors import error_body, install_error_handlers
 from atlas.api.land import router as land_router
 from atlas.api.project_controls import router as project_controls_router
 from atlas.api.projects import router as projects_router
+from atlas.modules.change_control.contracts import ChangeControlContract
+from atlas.modules.change_control.service import ChangeControlService
 from atlas.modules.commercial.contracts import CommercialContract
 from atlas.modules.commercial.service import CommercialService
 from atlas.modules.compliance.contracts import ComplianceContract
@@ -56,6 +59,7 @@ def create_app(
     commercial_service: CommercialContract | None = None,
     construction_service: ConstructionContract | None = None,
     project_controls_service: ProjectControlsContract | None = None,
+    change_control_service: ChangeControlContract | None = None,
     document_storage: DocumentStorage | None = None,
     relying_party: RelyingParty,
     dispose_engine: bool = False,
@@ -84,6 +88,11 @@ def create_app(
         if project_controls_service is not None
         else ProjectControlsService(identity)
     )
+    change_control = (
+        change_control_service
+        if change_control_service is not None
+        else ChangeControlService(identity)
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -102,6 +111,7 @@ def create_app(
         commercial=commercial,
         construction=construction,
         project_controls=project_controls,
+        change_control=change_control,
         relying_party=relying_party,
     )
     install_error_handlers(app)
@@ -130,6 +140,7 @@ def create_app(
     app.include_router(commercial_router)
     app.include_router(construction_router)
     app.include_router(project_controls_router)
+    app.include_router(change_control_router)
     return app
 
 

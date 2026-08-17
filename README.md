@@ -170,6 +170,12 @@ a path or URL. Material issuance is serialized against its receipt and rejects
 cumulative quantities above accepted stock. Formal discrepancy/change handling
 remains in Phase 7.
 
+Phase 7 operations cover change requests, RFIs, NCRs, and quantity discrepancy
+cases under `/api/v1`. The workflows enforce ordered transitions, controlled
+Documents evidence, decision attribution, routed-recipient responses, and
+reinspection before NCR closure. Confidential narrative fields are not copied
+into audit payloads or notification infrastructure.
+
 The local filesystem adapter is for synthetic development content only. Review
 every item in `docs/production-readiness-todo.md` before introducing real data.
 

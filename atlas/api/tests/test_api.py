@@ -14,6 +14,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from atlas.api import application
 from atlas.api.application import create_app
+from atlas.modules.change_control.schemas import ChangeCreate, ChangeSummary
 from atlas.modules.commercial.schemas import BudgetCreate, BudgetSummary
 from atlas.modules.compliance.schemas import (
     ComplianceObligationCreate,
@@ -344,6 +345,19 @@ class FakeProjectControls:
         )
 
 
+class FakeChangeControl:
+    def __init__(self) -> None:
+        self.calls: list[ChangeCreate] = []
+
+    async def create_change(
+        self, session: object, *, actor_user_id: UUID, data: ChangeCreate
+    ) -> ChangeSummary:
+        self.calls.append(data)
+        return ChangeSummary(
+            uuid4(), data.project_id, "requested", data.evidence_document_id, None, None, 1
+        )
+
+
 class FakeDocuments:
     def __init__(self) -> None:
         self.failure: Exception | None = None
@@ -578,6 +592,7 @@ def build_client(
     commercial: FakeCommercial | None = None,
     construction: FakeConstruction | None = None,
     project_controls: FakeProjectControls | None = None,
+    change_control: FakeChangeControl | None = None,
 ) -> tuple[httpx.AsyncClient, FakeOrganization, FakeSessionFactory]:
     fake_organization = organization or FakeOrganization()
     session_factory = FakeSessionFactory()
@@ -592,6 +607,7 @@ def build_client(
         commercial_service=commercial or FakeCommercial(),  # type: ignore[arg-type]
         construction_service=construction or FakeConstruction(),  # type: ignore[arg-type]
         project_controls_service=project_controls or FakeProjectControls(),  # type: ignore[arg-type]
+        change_control_service=change_control or FakeChangeControl(),  # type: ignore[arg-type]
         relying_party=RelyingParty(
             rp_id="localhost", rp_name="Atlas Test", origin="http://localhost"
         ),
@@ -688,6 +704,29 @@ async def test_phase6_bim_route_accepts_document_id_not_storage_reference() -> N
     assert accepted.status_code == 201
     assert accepted.json()["source_document_id"] == str(source_document_id)
     assert controls.calls[0].source_document_id == source_document_id
+    assert rejected.status_code == 422
+    assert sessions.sessions[0].commits == 1
+
+
+async def test_phase7_change_route_is_thin_and_rejects_unknown_fields() -> None:
+    changes = FakeChangeControl()
+    client, _, sessions = build_client(change_control=changes)
+    evidence_id = uuid4()
+    async with client:
+        accepted = await client.post(
+            f"/api/v1/projects/{PROJECT_ID}/change-requests",
+            json={
+                "description": "Synthetic change",
+                "budget_impact": "100.00",
+                "evidence_document_id": str(evidence_id),
+            },
+        )
+        rejected = await client.post(
+            f"/api/v1/projects/{PROJECT_ID}/change-requests",
+            json={"description": "Synthetic", "public_evidence_url": "https://example.invalid"},
+        )
+    assert accepted.status_code == 201
+    assert changes.calls[0].evidence_document_id == evidence_id
     assert rejected.status_code == 422
     assert sessions.sessions[0].commits == 1
 

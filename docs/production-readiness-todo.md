@@ -163,6 +163,33 @@ off before production data or users are introduced.
   before migration. The migration fails closed rather than attaching a receipt
   to a purchase order in another project.
 
+## Phase 7 — Change management, RFIs, NCRs, and discrepancies
+
+- [ ] Approve the change-control authority matrix, financial thresholds,
+  segregation of requester/reviewer/approver, required impact reviews, quorum,
+  rejection/rework rules, and which transitions require fresh passkey step-up.
+  The provisional service enforces requester/approver separation.
+- [ ] Classify change descriptions, schedule/budget impacts, quotations, RFIs,
+  responses, defects, corrective actions, and discrepancy explanations. Define
+  least-privilege access, retention, legal hold, export, and redaction rules.
+- [ ] Require controlled Documents evidence for drawings, quotations,
+  calculations, site photos, test reports, responses, and closure proof. Legacy
+  JSON/free-form evidence references must be migrated; never store raw files,
+  public URLs, credentials, signatures, or personal data in workflow JSON.
+- [ ] Approve RFI routing and SLA policy by discipline/severity, overdue clock
+  source and site timezone, reassignment/escalation rules, response authority,
+  and whether a response can be superseded without a new immutable revision.
+- [ ] Approve NCR severity, regulator/client notification, corrective-action
+  ownership, independent reinspection, closure authority, recurrence tracking,
+  and legal-hold rules for major or critical defects.
+- [ ] Approve quantity discrepancy thresholds, required engineering/commercial
+  reviewers, owner-approval triggers, resolution authority, and linkage to
+  budgets, procurement, contracts, and change requests. No automatic financial
+  posting is implemented until those policies are decided.
+- [ ] Decide notification recipients and message minimization. Email/SMS/push
+  notifications must contain opaque workflow IDs and safe summaries only, with
+  no confidential narrative, evidence URL, token, or personal information.
+
 ## Phase 3 — Land, legal, financing, and compliance
 
 - [ ] Approve the due-diligence checklist taxonomy, mandatory categories,

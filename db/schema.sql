@@ -566,7 +566,8 @@ CREATE TABLE quantities.quantity_items (
   CHECK (calculated_quantity IS NULL OR calculated_quantity >= 0),
   CHECK (verified_quantity IS NULL OR verified_quantity >= 0),
   CHECK (final_approved_quantity IS NULL OR final_approved_quantity >= 0),
-  CHECK (tolerance_pct BETWEEN 0 AND 100)
+  CHECK (tolerance_pct BETWEEN 0 AND 100),
+  UNIQUE (id, project_id)
 );
 
 -- =====================================================================
@@ -721,7 +722,8 @@ CREATE TABLE construction.schedule_activities (
   version                INTEGER NOT NULL DEFAULT 1,
   archived_at            TIMESTAMPTZ,
   CHECK (planned_end IS NULL OR planned_start IS NULL OR planned_end >= planned_start),
-  CHECK (actual_end IS NULL OR actual_start IS NULL OR actual_end >= actual_start)
+  CHECK (actual_end IS NULL OR actual_start IS NULL OR actual_end >= actual_start),
+  UNIQUE (id, project_id)
 );
 
 CREATE TABLE construction.site_diary_entries (
@@ -795,12 +797,21 @@ CREATE TABLE construction.change_requests (
   description       TEXT NOT NULL,
   schedule_impact   TEXT,
   budget_impact     NUMERIC(14,2),
+  evidence_document_id UUID REFERENCES documents.documents(id),
+  requested_by      UUID REFERENCES identity.users(id),
+  decided_by        UUID REFERENCES identity.users(id),
+  decided_at        TIMESTAMPTZ,
   status            TEXT NOT NULL DEFAULT 'requested'
     CHECK (status IN ('requested','feasibility_review','structural_review','revised_drawings',
                        'quantity_impact','budget_impact','procurement_impact','contract_impact',
                        'commercial_quotation','approved','implemented','verified','closed','rejected')),
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by        UUID REFERENCES identity.users(id),
+  updated_by        UUID REFERENCES identity.users(id),
+  version           INTEGER NOT NULL DEFAULT 1,
+  archived_at       TIMESTAMPTZ,
+  CHECK (budget_impact IS NULL OR budget_impact >= 0)
 );
 
 ALTER TABLE documents.document_versions
@@ -849,7 +860,8 @@ CREATE TABLE quality.inspections (
   created_by   UUID REFERENCES identity.users(id),
   updated_by   UUID REFERENCES identity.users(id),
   version      INTEGER NOT NULL DEFAULT 1,
-  archived_at  TIMESTAMPTZ
+  archived_at  TIMESTAMPTZ,
+  UNIQUE (id, project_id)
 );
 
 CREATE TABLE construction.progress_updates (
@@ -911,40 +923,67 @@ CREATE TABLE quality.rfis (
   routed_to    UUID REFERENCES identity.users(id),
   question     TEXT NOT NULL,
   response     TEXT,
+  evidence_document_id UUID REFERENCES documents.documents(id),
+  responded_by UUID REFERENCES identity.users(id),
+  responded_at TIMESTAMPTZ,
   sla_due_at   TIMESTAMPTZ,
   status       TEXT NOT NULL DEFAULT 'raised' CHECK (status IN ('raised','routed','responded','closed','overdue')),
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by   UUID REFERENCES identity.users(id),
+  updated_by   UUID REFERENCES identity.users(id),
+  version      INTEGER NOT NULL DEFAULT 1,
+  archived_at  TIMESTAMPTZ
 );
 
 -- NCR: promoted to a first-class object per audit finding.
 CREATE TABLE quality.ncrs (
   id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id          UUID NOT NULL REFERENCES organization.projects(id),
-  inspection_id       UUID REFERENCES quality.inspections(id),
-  schedule_activity_id UUID REFERENCES construction.schedule_activities(id),
+  inspection_id       UUID,
+  schedule_activity_id UUID,
   severity            TEXT NOT NULL CHECK (severity IN ('minor','major','critical')),
   description          TEXT NOT NULL,
   corrective_action    TEXT,
-  reinspection_id      UUID REFERENCES quality.inspections(id),
+  evidence_document_id UUID REFERENCES documents.documents(id),
+  closed_by             UUID REFERENCES identity.users(id),
+  closed_at             TIMESTAMPTZ,
+  reinspection_id      UUID,
   status               TEXT NOT NULL DEFAULT 'raised'
     CHECK (status IN ('raised','corrective_action_assigned','reinspection_scheduled','closed')),
   created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by             UUID REFERENCES identity.users(id),
+  updated_by             UUID REFERENCES identity.users(id),
+  version                INTEGER NOT NULL DEFAULT 1,
+  archived_at            TIMESTAMPTZ,
+  FOREIGN KEY (inspection_id, project_id) REFERENCES quality.inspections(id, project_id),
+  FOREIGN KEY (schedule_activity_id, project_id)
+    REFERENCES construction.schedule_activities(id, project_id),
+  FOREIGN KEY (reinspection_id, project_id) REFERENCES quality.inspections(id, project_id)
 );
 
 -- Discrepancy case remains distinct: used specifically for quantity variances (Blueprint §9).
 CREATE TABLE quality.discrepancy_cases (
   id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id        UUID NOT NULL REFERENCES organization.projects(id),
-  quantity_item_id  UUID REFERENCES quantities.quantity_items(id),
+  quantity_item_id  UUID,
   description       TEXT,
   evidence_ref      JSONB,
+  evidence_document_id UUID REFERENCES documents.documents(id),
+  resolved_by       UUID REFERENCES identity.users(id),
+  resolved_at       TIMESTAMPTZ,
   proposed_resolution TEXT,
   status            TEXT NOT NULL DEFAULT 'open'
     CHECK (status IN ('open','explanation_provided','engineering_review','owner_approval_required','resolved')),
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by        UUID REFERENCES identity.users(id),
+  updated_by        UUID REFERENCES identity.users(id),
+  version           INTEGER NOT NULL DEFAULT 1,
+  archived_at       TIMESTAMPTZ,
+  FOREIGN KEY (quantity_item_id, project_id)
+    REFERENCES quantities.quantity_items(id, project_id)
 );
 
 CREATE INDEX idx_inspections_project ON quality.inspections(project_id);
@@ -953,6 +992,8 @@ CREATE INDEX idx_progress_updates_project_date
 CREATE INDEX idx_snag_items_project_status ON quality.snag_items(project_id, status);
 CREATE INDEX idx_rfis_project_status ON quality.rfis(project_id, status);
 CREATE INDEX idx_ncrs_project_status ON quality.ncrs(project_id, status);
+CREATE INDEX idx_change_requests_project_status ON construction.change_requests(project_id, status);
+CREATE INDEX idx_discrepancy_cases_project_status ON quality.discrepancy_cases(project_id, status);
 
 -- =====================================================================
 -- SCHEMA: inventory   (Blueprint §4)

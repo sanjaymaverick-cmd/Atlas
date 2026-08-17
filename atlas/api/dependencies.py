@@ -11,6 +11,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from atlas.api.errors import UnauthenticatedError
+from atlas.modules.change_control.contracts import ChangeControlContract
 from atlas.modules.commercial.contracts import CommercialContract
 from atlas.modules.compliance.contracts import ComplianceContract
 from atlas.modules.construction.contracts import ConstructionContract
@@ -34,6 +35,7 @@ class ApiServices:
     commercial: CommercialContract
     construction: ConstructionContract
     project_controls: ProjectControlsContract
+    change_control: ChangeControlContract
     relying_party: RelyingParty
 
 

@@ -248,3 +248,38 @@ forbidden_modules =
     atlas.modules.compliance
     atlas.modules.commercial
     atlas.modules.construction
+
+[importlinter:contract:change-control-private]
+name = Change control internals are private to the change control module
+type = forbidden
+source_modules =
+    atlas.modules.identity
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.documents
+    atlas.modules.land
+    atlas.modules.compliance
+    atlas.modules.commercial
+    atlas.modules.construction
+    atlas.modules.project_controls
+    atlas.owner_console
+forbidden_modules =
+    atlas.modules.change_control.models
+    atlas.modules.change_control.service
+allow_indirect_imports = true
+
+[importlinter:contract:change-control-independent]
+name = Change control depends only on Identity contracts and platform services
+type = forbidden
+source_modules =
+    atlas.modules.change_control
+forbidden_modules =
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.documents.models
+    atlas.modules.documents.service
+    atlas.modules.land
+    atlas.modules.compliance
+    atlas.modules.commercial
+    atlas.modules.construction
+    atlas.modules.project_controls
