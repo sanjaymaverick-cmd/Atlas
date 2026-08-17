@@ -1227,16 +1227,62 @@ CREATE UNIQUE INDEX uq_active_booking_unit ON customers.bookings(unit_id)
 -- =====================================================================
 CREATE SCHEMA IF NOT EXISTS finance;
 
+CREATE TABLE finance.tally_import_batches (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  legal_entity_id    UUID NOT NULL REFERENCES organization.legal_entities(id),
+  source_document_id UUID NOT NULL REFERENCES documents.documents(id),
+  content_sha256     TEXT NOT NULL CHECK (content_sha256 ~ '^[0-9a-f]{64}$'),
+  period_start       DATE,
+  period_end         DATE,
+  status             TEXT NOT NULL DEFAULT 'pending_validation'
+    CHECK (status IN ('pending_validation','validated','rejected','imported')),
+  validation_summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+  imported_at        TIMESTAMPTZ,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by         UUID REFERENCES identity.users(id),
+  updated_by         UUID REFERENCES identity.users(id),
+  version            INTEGER NOT NULL DEFAULT 1,
+  archived_at        TIMESTAMPTZ,
+  CHECK (period_end IS NULL OR period_start IS NULL OR period_end >= period_start),
+  UNIQUE (legal_entity_id, content_sha256)
+);
+
+CREATE TABLE finance.tally_ledger_mappings (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  legal_entity_id    UUID NOT NULL REFERENCES organization.legal_entities(id),
+  tally_ledger_name  TEXT NOT NULL,
+  erp_reference_type TEXT NOT NULL,
+  erp_reference_id   UUID NOT NULL,
+  status             TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','retired')),
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by         UUID REFERENCES identity.users(id),
+  updated_by         UUID REFERENCES identity.users(id),
+  version            INTEGER NOT NULL DEFAULT 1,
+  archived_at        TIMESTAMPTZ,
+  UNIQUE (legal_entity_id, tally_ledger_name)
+);
+
 CREATE TABLE finance.tally_vouchers (
   id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  import_batch_id  UUID NOT NULL REFERENCES finance.tally_import_batches(id),
   legal_entity_id  UUID NOT NULL REFERENCES organization.legal_entities(id),
-  voucher_type     TEXT,
-  voucher_number   TEXT,
-  voucher_date     DATE,
-  amount           NUMERIC(16,2),
-  ledger_reference TEXT,
+  project_id       UUID REFERENCES organization.projects(id),
+  external_id      TEXT NOT NULL,
+  voucher_type     TEXT NOT NULL,
+  voucher_number   TEXT NOT NULL,
+  voucher_date     DATE NOT NULL,
+  amount           NUMERIC(16,2) NOT NULL CHECK (amount >= 0),
+  ledger_reference TEXT NOT NULL,
+  currency_code    TEXT NOT NULL DEFAULT 'INR' CHECK (currency_code ~ '^[A-Z]{3}$'),
   imported_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  status           TEXT NOT NULL DEFAULT 'imported' CHECK (status IN ('imported','matched','discrepant'))
+  status           TEXT NOT NULL DEFAULT 'imported' CHECK (status IN ('imported','matched','discrepant')),
+  created_by       UUID REFERENCES identity.users(id),
+  updated_by       UUID REFERENCES identity.users(id),
+  version          INTEGER NOT NULL DEFAULT 1,
+  archived_at      TIMESTAMPTZ,
+  UNIQUE (legal_entity_id, external_id)
 );
 
 CREATE TABLE finance.reconciliations (
@@ -1245,12 +1291,31 @@ CREATE TABLE finance.reconciliations (
   erp_reference_type TEXT NOT NULL,   -- 'purchase_order','contract_milestone','collection', etc.
   erp_reference_id   UUID NOT NULL,
   tally_voucher_id   UUID REFERENCES finance.tally_vouchers(id),
-  discrepancy_type   TEXT,            -- missing_in_tally, missing_in_erp, amount_mismatch, wrong_entity, wrong_project, duplicate, unallocated_receipt
-  status             TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','under_review','reconciled')),
+  discrepancy_type   TEXT NOT NULL CHECK (discrepancy_type IN
+    ('missing_in_tally','missing_in_erp','amount_mismatch','wrong_entity','wrong_project',
+     'duplicate_voucher','unallocated_receipt','schedule_not_updated','obligation_still_open')),
+  erp_amount          NUMERIC(16,2) CHECK (erp_amount IS NULL OR erp_amount >= 0),
+  tally_amount        NUMERIC(16,2) CHECK (tally_amount IS NULL OR tally_amount >= 0),
+  status             TEXT NOT NULL DEFAULT 'open'
+    CHECK (status IN ('open','under_review','reconciled','accepted_exception')),
   reviewed_by        UUID REFERENCES identity.users(id),
+  reviewed_at        TIMESTAMPTZ,
+  resolution_code    TEXT,
+  resolution_note    TEXT,
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by         UUID REFERENCES identity.users(id),
+  updated_by         UUID REFERENCES identity.users(id),
+  version            INTEGER NOT NULL DEFAULT 1,
+  archived_at        TIMESTAMPTZ,
+  UNIQUE (erp_reference_type, erp_reference_id, tally_voucher_id, discrepancy_type)
 );
+
+CREATE INDEX idx_tally_batches_entity_status
+  ON finance.tally_import_batches(legal_entity_id, status);
+CREATE INDEX idx_tally_vouchers_batch ON finance.tally_vouchers(import_batch_id);
+CREATE INDEX idx_reconciliations_entity_status
+  ON finance.reconciliations(legal_entity_id, status);
 
 CREATE TABLE finance.payments (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
