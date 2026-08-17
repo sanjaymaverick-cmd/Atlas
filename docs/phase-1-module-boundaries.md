@@ -52,6 +52,7 @@ business module.
 | `platform/kms/` | `KeyManagementProvider` protocol + development implementation |
 | `platform/audit/chain.py` | Hash computation and chain verification, implemented independently of the database |
 | `platform/audit/writer.py` | Insert wrapper for `audit.audit_events`; the database computes hashes |
+| `platform/step_up.py` | The §15 sensitive-action list and its freshness window |
 | `platform/access_control.py` | The §15 request check: user × role × legal entity × project × module × classification × action × device trust × session risk |
 
 `platform/audit/chain.py` is deliberately a *second* implementation of the hash
@@ -87,13 +88,16 @@ rule — a role may be global, or bound to a legal entity, or to a project — s
 in one place, so §2's legal-entity separation and project isolation are enforced
 once rather than re-implemented per module.
 
-Two pieces of policy live here as pure logic, tested without a database:
+`break_glass.py` lives here as pure logic, tested without a database: the
+`sealed → invoked → revoked` machine the database's CHECK constraint cannot
+express, and the time-boxed grant that avoids promoting the holder to a
+permanent owner.
 
-- `step_up.py` — the §15 sensitive-action list and the freshness window that
-  stops one step-up authorising later actions.
-- `break_glass.py` — the `sealed → invoked → revoked` machine the database's
-  CHECK constraint cannot express, and the time-boxed grant that avoids
-  promoting the holder to a permanent owner.
+The step-up *policy* deliberately does **not** live here. Its action list spans
+contracts, payments, vendor masters and documents, so it belongs to no single
+business module; it sits in `platform/step_up.py` where `access_control` can
+reach it without the platform layer depending on Identity. Identity still owns
+the step-up *ceremony* and the session row that records it.
 
 ## Organization
 

@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from atlas.modules.identity.step_up import (
+from atlas.platform.step_up import (
     DEFAULT_STEP_UP_TTL,
     SensitiveAction,
     StepUpRequiredError,

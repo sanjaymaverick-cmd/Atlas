@@ -4,6 +4,10 @@ Blueprint §15 lists the actions that require stronger approval than an ordinary
 authenticated session. Step-up is re-authentication against the user's
 passkey immediately before such an action.
 
+This is platform policy rather than an Identity concern: the action list spans
+contracts, payments, vendor masters and documents, so it belongs to no single
+business module and must not be reachable only through one.
+
 The freshness window is the point of this module. ``identity.sessions`` carries
 a ``step_up_verified`` boolean, and a boolean alone never decays: one step-up
 performed to approve a contract would silently authorise a payment release an
