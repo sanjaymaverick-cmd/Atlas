@@ -93,7 +93,7 @@ class ProgressCreateRequest(BaseModel):
 class EhsCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     incident_date: date
-    severity: str = Field(pattern="^(minor|major|fatal)$")
+    severity: str = Field(pattern="^(near_miss|minor|major|fatality)$")
     site_diary_entry_id: UUID | None = None
     description: str | None = Field(default=None, max_length=8000)
 

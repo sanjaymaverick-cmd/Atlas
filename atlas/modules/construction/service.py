@@ -418,8 +418,10 @@ class ConstructionService:
     async def create_ehs_incident(
         self, session: AsyncSession, *, actor_user_id: UUID, data: EhsCreate
     ) -> EhsSummary:
-        if data.severity not in {"minor", "major", "fatal"}:
-            raise ConstructionConflictError("EHS severity must be minor, major, or fatal")
+        if data.severity not in {"near_miss", "minor", "major", "fatality"}:
+            raise ConstructionConflictError(
+                "EHS severity must be near_miss, minor, major, or fatality"
+            )
         await self._require(
             session,
             actor=actor_user_id,

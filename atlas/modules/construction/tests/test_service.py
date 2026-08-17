@@ -80,6 +80,22 @@ async def test_ehs_rejects_unknown_severity_before_write() -> None:
     assert session.added == []
 
 
+@pytest.mark.parametrize("severity", ["near_miss", "minor", "major", "fatality"])
+async def test_ehs_severity_matches_canonical_database_values(
+    monkeypatch: pytest.MonkeyPatch, severity: str
+) -> None:
+    async def audit(*args: object, **kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(service_module, "record_event", audit)
+    result = await service().create_ehs_incident(
+        cast(AsyncSession, SessionStub()),
+        actor_user_id=uuid4(),
+        data=EhsCreate(uuid4(), date(2026, 8, 17), severity),
+    )
+    assert result.severity == severity
+
+
 async def test_offline_diary_client_id_cannot_silently_change_date() -> None:
     now = datetime.now(UTC)
     project_id, client_id, actor = uuid4(), uuid4(), uuid4()
