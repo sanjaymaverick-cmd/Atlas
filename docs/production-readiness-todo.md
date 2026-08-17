@@ -101,6 +101,36 @@ off before production data or users are introduced.
   non-negative monetary/quantity fields, immutable executed-document evidence,
   and archival instead of deletion.
 
+## Phase 5 — Construction, site diary, QA/QC, snagging, and EHS
+
+- [ ] Approve the offline site-diary conflict policy. The provisional design
+  uses a client-generated UUID for idempotency, accepts one diary per project
+  and calendar date, preserves server versions, and rejects conflicting edits
+  rather than silently selecting a winner.
+- [ ] Select the approved mobile-device storage and sync design: encrypted
+  local database, device binding, remote wipe/revocation behavior, minimum OS,
+  TLS pinning decision, retry limits, clock-skew handling, and maximum offline
+  retention must be security-reviewed before real field data is cached.
+- [ ] Classify visitor logs, worker counts, incident narratives, assignees,
+  photos, location/unit references, and device timestamps. Define minimization,
+  notice/consent, retention, access, export, and incident-reporting rules.
+- [ ] EHS fatality/major-incident handling requires jurisdiction-specific
+  escalation, regulator notification, legal hold, investigation ownership, and
+  tamper-evident evidence procedures approved by qualified advisers.
+- [ ] Approve inspection template governance, required evidence types,
+  inspector independence, failed-inspection/NCR escalation, snag severity/SLA,
+  rectification verification, and close authority.
+- [ ] Site photos, certificates, inspection reports, and progress evidence must
+  use restricted Documents records. Raw binaries, public URLs, GPS metadata,
+  biometric data, and personal identifiers must not be embedded in JSON fields,
+  logs, fixtures, or audit payloads.
+- [ ] Review provisional progress invariants: percentage is 0–100, one update
+  per activity/date, schedule dates cannot run backwards, and progress evidence
+  remains immutable after submission.
+- [ ] Choose the authoritative project/site business timezone and date rollover
+  policy. The local service currently derives automatic transition dates from
+  UTC; do not assume UTC calendar dates match the legally relevant site date.
+
 ## Phase 3 — Land, legal, financing, and compliance
 
 - [ ] Approve the due-diligence checklist taxonomy, mandatory categories,

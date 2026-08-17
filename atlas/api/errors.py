@@ -18,6 +18,11 @@ from atlas.modules.compliance.contracts import (
     ComplianceNotAuthorisedError,
     ComplianceNotFoundError,
 )
+from atlas.modules.construction.contracts import (
+    ConstructionConflictError,
+    ConstructionNotAuthorisedError,
+    ConstructionNotFoundError,
+)
 from atlas.modules.documents.contracts import (
     DocumentConflictError,
     DocumentNotAuthorisedError,
@@ -57,6 +62,7 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(LandNotAuthorisedError)
     @app.exception_handler(ComplianceNotAuthorisedError)
     @app.exception_handler(CommercialNotAuthorisedError)
+    @app.exception_handler(ConstructionNotAuthorisedError)
     async def forbidden_handler(request: Request, exc: Exception) -> JSONResponse:
         return JSONResponse(
             status_code=403,
@@ -68,6 +74,7 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(LandNotFoundError)
     @app.exception_handler(ComplianceNotFoundError)
     @app.exception_handler(CommercialNotFoundError)
+    @app.exception_handler(ConstructionNotFoundError)
     async def not_found_handler(request: Request, exc: Exception) -> JSONResponse:
         return JSONResponse(status_code=404, content=error_body("not_found", str(exc)))
 
@@ -76,6 +83,7 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(LandConflictError)
     @app.exception_handler(ComplianceConflictError)
     @app.exception_handler(CommercialConflictError)
+    @app.exception_handler(ConstructionConflictError)
     async def conflict_handler(request: Request, exc: Exception) -> JSONResponse:
         return JSONResponse(status_code=409, content=error_body("conflict", str(exc)))
 

@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from atlas.api.errors import UnauthenticatedError
 from atlas.modules.commercial.contracts import CommercialContract
 from atlas.modules.compliance.contracts import ComplianceContract
+from atlas.modules.construction.contracts import ConstructionContract
 from atlas.modules.documents.contracts import DocumentsContract
 from atlas.modules.identity.contracts import IdentityContract
 from atlas.modules.identity.schemas import RelyingParty, SessionContext
@@ -30,6 +31,7 @@ class ApiServices:
     land: LandContract
     compliance: ComplianceContract
     commercial: CommercialContract
+    construction: ConstructionContract
     relying_party: RelyingParty
 
 

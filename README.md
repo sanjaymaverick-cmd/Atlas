@@ -156,6 +156,13 @@ Phase 4 operations are under `/api/v1/budgets`, `/api/v1/purchase-orders`,
 to a restricted Documents record. Do not put account numbers, cheque images,
 signatures, credentials, or raw evidence into reference fields or API logs.
 
+Phase 5 operations cover schedule activities and progress, offline-idempotent
+site diaries, EHS incidents, inspection templates and executions, document-backed
+evidence, and snag lifecycles under `/api/v1`. Visitor information is accepted as
+a count only; safety narratives and checklist content are excluded from audit
+payloads. PostgreSQL integration tests require `ATLAS_TEST_DATABASE_URL` and are
+reported as skipped—not passed—when it is absent.
+
 The local filesystem adapter is for synthetic development content only. Review
 every item in `docs/production-readiness-todo.md` before introducing real data.
 

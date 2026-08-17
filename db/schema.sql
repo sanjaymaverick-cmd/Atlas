@@ -692,13 +692,21 @@ CREATE TABLE construction.schedule_activities (
   status                 TEXT NOT NULL DEFAULT 'not_started'
     CHECK (status IN ('not_started','in_progress','delayed','completed')),
   created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by             UUID REFERENCES identity.users(id),
+  updated_by             UUID REFERENCES identity.users(id),
+  version                INTEGER NOT NULL DEFAULT 1,
+  archived_at            TIMESTAMPTZ,
+  CHECK (planned_end IS NULL OR planned_start IS NULL OR planned_end >= planned_start),
+  CHECK (actual_end IS NULL OR actual_start IS NULL OR actual_end >= actual_start)
 );
 
 CREATE TABLE construction.site_diary_entries (
   id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id               UUID NOT NULL REFERENCES organization.projects(id),
   entry_date               DATE NOT NULL,
+  client_record_id         UUID NOT NULL DEFAULT gen_random_uuid(),
+  device_recorded_at       TIMESTAMPTZ,
   weather                  TEXT,
   labour_strength          JSONB,   -- {"mason": 12, "electrician": 4, ...}
   materials_received       JSONB,
@@ -710,7 +718,13 @@ CREATE TABLE construction.site_diary_entries (
   recorded_by              UUID REFERENCES identity.users(id),
   status                   TEXT NOT NULL DEFAULT 'submitted' CHECK (status IN ('draft','submitted')),
   created_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (project_id, entry_date)
+  updated_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by               UUID REFERENCES identity.users(id),
+  updated_by               UUID REFERENCES identity.users(id),
+  version                  INTEGER NOT NULL DEFAULT 1,
+  archived_at              TIMESTAMPTZ,
+  UNIQUE (project_id, entry_date),
+  UNIQUE (project_id, client_record_id)
 );
 
 CREATE TABLE construction.ehs_incidents (
@@ -723,7 +737,11 @@ CREATE TABLE construction.ehs_incidents (
   corrective_action   TEXT,
   status              TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','corrective_action_assigned','closed')),
   created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by          UUID REFERENCES identity.users(id),
+  updated_by          UUID REFERENCES identity.users(id),
+  version             INTEGER NOT NULL DEFAULT 1,
+  archived_at         TIMESTAMPTZ
 );
 
 CREATE TABLE construction.meeting_registers (
@@ -783,7 +801,12 @@ CREATE TABLE quality.inspection_templates (
   checklist     JSONB NOT NULL,    -- [{"item": "Pressure test completed", "requires_photo": true}, ...]
   status        TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('draft','active','retired')),
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by    UUID REFERENCES identity.users(id),
+  updated_by    UUID REFERENCES identity.users(id),
+  version       INTEGER NOT NULL DEFAULT 1,
+  archived_at   TIMESTAMPTZ,
+  UNIQUE (project_id, template_name)
 );
 
 CREATE TABLE quality.inspections (
@@ -799,7 +822,62 @@ CREATE TABLE quality.inspections (
   notes        TEXT,
   status       TEXT NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled','in_progress','completed')),
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by   UUID REFERENCES identity.users(id),
+  updated_by   UUID REFERENCES identity.users(id),
+  version      INTEGER NOT NULL DEFAULT 1,
+  archived_at  TIMESTAMPTZ
+);
+
+CREATE TABLE construction.progress_updates (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id            UUID NOT NULL REFERENCES organization.projects(id),
+  schedule_activity_id  UUID NOT NULL REFERENCES construction.schedule_activities(id),
+  progress_date         DATE NOT NULL,
+  percent_complete      NUMERIC(5,2) NOT NULL CHECK (percent_complete BETWEEN 0 AND 100),
+  notes                 TEXT,
+  evidence_document_id  UUID REFERENCES documents.documents(id),
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by            UUID REFERENCES identity.users(id),
+  updated_by            UUID REFERENCES identity.users(id),
+  version               INTEGER NOT NULL DEFAULT 1,
+  archived_at           TIMESTAMPTZ,
+  UNIQUE (schedule_activity_id, progress_date)
+);
+
+CREATE TABLE quality.inspection_evidence (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  inspection_id  UUID NOT NULL REFERENCES quality.inspections(id),
+  document_id    UUID NOT NULL REFERENCES documents.documents(id),
+  evidence_type  TEXT NOT NULL DEFAULT 'photo'
+    CHECK (evidence_type IN ('photo','report','certificate','other')),
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by     UUID REFERENCES identity.users(id),
+  UNIQUE (inspection_id, document_id)
+);
+
+CREATE TABLE quality.snag_items (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id            UUID NOT NULL REFERENCES organization.projects(id),
+  inspection_id         UUID REFERENCES quality.inspections(id),
+  building_id           UUID REFERENCES organization.buildings(id),
+  floor_id              UUID REFERENCES organization.floors(id),
+  unit_id               UUID REFERENCES organization.units(id),
+  description           TEXT NOT NULL,
+  severity              TEXT NOT NULL DEFAULT 'minor'
+    CHECK (severity IN ('minor','major','critical')),
+  assigned_to           UUID REFERENCES identity.users(id),
+  due_date              DATE,
+  evidence_document_id  UUID REFERENCES documents.documents(id),
+  status                TEXT NOT NULL DEFAULT 'open'
+    CHECK (status IN ('open','assigned','rectified','verified','closed')),
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by            UUID REFERENCES identity.users(id),
+  updated_by            UUID REFERENCES identity.users(id),
+  version               INTEGER NOT NULL DEFAULT 1,
+  archived_at           TIMESTAMPTZ
 );
 
 -- RFI: promoted to a first-class object per audit finding (was folded into discrepancy case in v1).
@@ -847,6 +925,9 @@ CREATE TABLE quality.discrepancy_cases (
 );
 
 CREATE INDEX idx_inspections_project ON quality.inspections(project_id);
+CREATE INDEX idx_progress_updates_project_date
+  ON construction.progress_updates(project_id, progress_date);
+CREATE INDEX idx_snag_items_project_status ON quality.snag_items(project_id, status);
 CREATE INDEX idx_rfis_project_status ON quality.rfis(project_id, status);
 CREATE INDEX idx_ncrs_project_status ON quality.ncrs(project_id, status);
 

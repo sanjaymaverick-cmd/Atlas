@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from atlas.api.auth import router as auth_router
 from atlas.api.commercial import router as commercial_router
 from atlas.api.compliance import router as compliance_router
+from atlas.api.construction import router as construction_router
 from atlas.api.dependencies import ApiServices
 from atlas.api.documents import router as documents_router
 from atlas.api.errors import error_body, install_error_handlers
@@ -25,6 +26,8 @@ from atlas.modules.commercial.contracts import CommercialContract
 from atlas.modules.commercial.service import CommercialService
 from atlas.modules.compliance.contracts import ComplianceContract
 from atlas.modules.compliance.service import ComplianceService
+from atlas.modules.construction.contracts import ConstructionContract
+from atlas.modules.construction.service import ConstructionService
 from atlas.modules.documents.contracts import DocumentsContract
 from atlas.modules.documents.service import DocumentsService
 from atlas.modules.documents.storage import DocumentStorage, LocalDocumentStorage
@@ -48,6 +51,7 @@ def create_app(
     land_service: LandContract | None = None,
     compliance_service: ComplianceContract | None = None,
     commercial_service: CommercialContract | None = None,
+    construction_service: ConstructionContract | None = None,
     document_storage: DocumentStorage | None = None,
     relying_party: RelyingParty,
     dispose_engine: bool = False,
@@ -68,6 +72,9 @@ def create_app(
     commercial = (
         commercial_service if commercial_service is not None else CommercialService(identity)
     )
+    construction = (
+        construction_service if construction_service is not None else ConstructionService(identity)
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -84,6 +91,7 @@ def create_app(
         land=land,
         compliance=compliance,
         commercial=commercial,
+        construction=construction,
         relying_party=relying_party,
     )
     install_error_handlers(app)
@@ -110,6 +118,7 @@ def create_app(
     app.include_router(land_router)
     app.include_router(compliance_router)
     app.include_router(commercial_router)
+    app.include_router(construction_router)
     return app
 
 

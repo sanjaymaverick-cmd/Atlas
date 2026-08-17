@@ -19,6 +19,7 @@ from atlas.modules.compliance.schemas import (
     ComplianceObligationCreate,
     ComplianceObligationSummary,
 )
+from atlas.modules.construction.schemas import SiteDiaryCreate, SiteDiarySummary
 from atlas.modules.documents.contracts import DocumentConflictError
 from atlas.modules.documents.schemas import (
     DocumentCreate,
@@ -316,6 +317,19 @@ class FakeCommercial:
         )
 
 
+class FakeConstruction:
+    def __init__(self) -> None:
+        self.calls: list[SiteDiaryCreate] = []
+
+    async def submit_site_diary(
+        self, session: object, *, actor_user_id: UUID, data: SiteDiaryCreate
+    ) -> SiteDiarySummary:
+        self.calls.append(data)
+        return SiteDiarySummary(
+            uuid4(), data.project_id, data.entry_date, data.client_record_id, "submitted", 1, None
+        )
+
+
 class FakeDocuments:
     def __init__(self) -> None:
         self.failure: Exception | None = None
@@ -548,6 +562,7 @@ def build_client(
     land: FakeLand | None = None,
     compliance: FakeCompliance | None = None,
     commercial: FakeCommercial | None = None,
+    construction: FakeConstruction | None = None,
 ) -> tuple[httpx.AsyncClient, FakeOrganization, FakeSessionFactory]:
     fake_organization = organization or FakeOrganization()
     session_factory = FakeSessionFactory()
@@ -560,6 +575,7 @@ def build_client(
         land_service=land or FakeLand(),  # type: ignore[arg-type]
         compliance_service=compliance or FakeCompliance(),  # type: ignore[arg-type]
         commercial_service=commercial or FakeCommercial(),  # type: ignore[arg-type]
+        construction_service=construction or FakeConstruction(),  # type: ignore[arg-type]
         relying_party=RelyingParty(
             rp_id="localhost", rp_name="Atlas Test", origin="http://localhost"
         ),
@@ -616,6 +632,27 @@ async def test_phase4_budget_route_delegates_to_commercial_contract() -> None:
     assert response.json()["status"] == "draft"
     assert commercial.calls[0].project_id == PROJECT_ID
     assert commercial.calls[0].legal_entity_id == ENTITY_ID
+    assert sessions.sessions[0].commits == 1
+
+
+async def test_phase5_site_diary_route_minimises_visitor_data_and_delegates() -> None:
+    construction = FakeConstruction()
+    client, _, sessions = build_client(construction=construction)
+    client_record_id = uuid4()
+    async with client:
+        response = await client.post(
+            f"/api/v1/projects/{PROJECT_ID}/site-diary",
+            json={
+                "entry_date": "2026-08-17",
+                "client_record_id": str(client_record_id),
+                "labour_strength": {"synthetic_trade": 4},
+                "visitor_count": 2,
+            },
+        )
+    assert response.status_code == 201
+    assert response.json()["client_record_id"] == str(client_record_id)
+    assert construction.calls[0].visitor_count == 2
+    assert not hasattr(construction.calls[0], "visitor_names")
     assert sessions.sessions[0].commits == 1
 
 
