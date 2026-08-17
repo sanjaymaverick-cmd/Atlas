@@ -407,3 +407,46 @@ forbidden_modules =
     atlas.modules.change_control
     atlas.modules.customer_lifecycle
     atlas.modules.finance
+
+[importlinter:contract:ai-assistant-private]
+name = AI assistant internals are private to the AI assistant module
+type = forbidden
+source_modules =
+    atlas.modules.identity
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.documents
+    atlas.modules.land
+    atlas.modules.compliance
+    atlas.modules.commercial
+    atlas.modules.construction
+    atlas.modules.project_controls
+    atlas.modules.change_control
+    atlas.modules.customer_lifecycle
+    atlas.modules.finance
+    atlas.modules.reporting
+    atlas.owner_console
+forbidden_modules =
+    atlas.modules.ai_assistant.models
+    atlas.modules.ai_assistant.service
+    atlas.modules.ai_assistant.provider
+allow_indirect_imports = true
+
+[importlinter:contract:ai-assistant-independent]
+name = AI assistant depends only on Identity contracts and platform services
+type = forbidden
+source_modules =
+    atlas.modules.ai_assistant
+forbidden_modules =
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.documents
+    atlas.modules.land
+    atlas.modules.compliance
+    atlas.modules.commercial
+    atlas.modules.construction
+    atlas.modules.project_controls
+    atlas.modules.change_control
+    atlas.modules.customer_lifecycle
+    atlas.modules.finance
+    atlas.modules.reporting

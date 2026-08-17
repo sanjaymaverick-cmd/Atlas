@@ -8,6 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from atlas.modules.ai_assistant.contracts import AssistantConflictError, AssistantNotAuthorisedError
 from atlas.modules.change_control.contracts import (
     ChangeControlConflictError,
     ChangeControlNotAuthorisedError,
@@ -93,6 +94,7 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(CustomerLifecycleNotAuthorisedError)
     @app.exception_handler(FinanceNotAuthorisedError)
     @app.exception_handler(ReportingNotAuthorisedError)
+    @app.exception_handler(AssistantNotAuthorisedError)
     async def forbidden_handler(request: Request, exc: Exception) -> JSONResponse:
         return JSONResponse(
             status_code=403,
@@ -124,6 +126,7 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(CustomerLifecycleConflictError)
     @app.exception_handler(FinanceConflictError)
     @app.exception_handler(ReportingConflictError)
+    @app.exception_handler(AssistantConflictError)
     async def conflict_handler(request: Request, exc: Exception) -> JSONResponse:
         return JSONResponse(status_code=409, content=error_body("conflict", str(exc)))
 

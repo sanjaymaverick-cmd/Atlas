@@ -1450,26 +1450,44 @@ CREATE SCHEMA IF NOT EXISTS ai;
 
 CREATE TABLE ai.ai_queries (
   id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id              UUID REFERENCES identity.users(id),
-  query_text           TEXT NOT NULL,
-  intent_classification TEXT,
-  response_text        TEXT,
-  confidence           NUMERIC(4,3),   -- 0.000–1.000; below Phase-11 minimum threshold, AI must decline
+  user_id              UUID NOT NULL REFERENCES identity.users(id),
+  legal_entity_id      UUID REFERENCES organization.legal_entities(id),
+  project_id           UUID REFERENCES organization.projects(id),
+  request_digest       TEXT NOT NULL CHECK (request_digest ~ '^[0-9a-f]{64}$'),
+  request_length       INTEGER NOT NULL CHECK (request_length BETWEEN 1 AND 12000),
+  intent_classification TEXT NOT NULL,
+  authority_level      INTEGER NOT NULL CHECK (authority_level BETWEEN 1 AND 4),
+  response_digest      TEXT CHECK (response_digest IS NULL OR response_digest ~ '^[0-9a-f]{64}$'),
+  response_length      INTEGER CHECK (response_length IS NULL OR response_length >= 0),
+  confidence           NUMERIC(4,3) CHECK (confidence IS NULL OR confidence BETWEEN 0 AND 1),
   required_approver    UUID REFERENCES identity.users(id),
-  status               TEXT NOT NULL DEFAULT 'answered' CHECK (status IN ('answered','declined_low_confidence','blocked_authority')),
-  created_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+  status               TEXT NOT NULL DEFAULT 'pending' CHECK (status IN
+    ('pending','answered','declined_low_confidence','blocked_authority',
+     'blocked_prompt_injection','hosting_not_configured','failed')),
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by           UUID REFERENCES identity.users(id),
+  updated_by           UUID REFERENCES identity.users(id),
+  version              INTEGER NOT NULL DEFAULT 1,
+  archived_at          TIMESTAMPTZ
 );
 
 CREATE TABLE ai.ai_recommendations (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   ai_query_id        UUID NOT NULL REFERENCES ai.ai_queries(id),
-  recommendation_text TEXT NOT NULL,
+  content_document_id UUID NOT NULL REFERENCES documents.documents(id),
+  recommendation_digest TEXT NOT NULL CHECK (recommendation_digest ~ '^[0-9a-f]{64}$'),
   financial_impact   NUMERIC(16,2),
   schedule_impact    TEXT,
   risk_level         TEXT CHECK (risk_level IN ('low','medium','high')),
   status             TEXT NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed','approved','rejected','superseded')),
   approved_by        UUID REFERENCES identity.users(id),
-  created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by         UUID REFERENCES identity.users(id),
+  updated_by         UUID REFERENCES identity.users(id),
+  version            INTEGER NOT NULL DEFAULT 1,
+  archived_at        TIMESTAMPTZ
 );
 
 -- Authority-boundary log: every attempted action is logged, including blocked ones —
@@ -1478,11 +1496,15 @@ CREATE TABLE ai.ai_authority_log (
   id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   ai_query_id      UUID REFERENCES ai.ai_queries(id),
   authority_level  INT NOT NULL CHECK (authority_level BETWEEN 1 AND 4),
-  action_attempted TEXT NOT NULL,
+  action_code      TEXT NOT NULL,
   blocked          BOOLEAN NOT NULL DEFAULT false,
-  reason           TEXT,
+  reason_code      TEXT,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE INDEX idx_ai_queries_scope_created
+  ON ai.ai_queries(legal_entity_id, project_id, created_at);
+CREATE INDEX idx_ai_authority_query ON ai.ai_authority_log(ai_query_id);
 
 -- =====================================================================
 -- SCHEMA: audit   (Blueprint §5.2 — hash-chained AuditEvent)

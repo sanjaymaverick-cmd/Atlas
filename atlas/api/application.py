@@ -13,6 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from atlas.api.ai_assistant import router as assistant_router
 from atlas.api.auth import router as auth_router
 from atlas.api.change_control import router as change_control_router
 from atlas.api.commercial import router as commercial_router
@@ -27,6 +28,8 @@ from atlas.api.land import router as land_router
 from atlas.api.project_controls import router as project_controls_router
 from atlas.api.projects import router as projects_router
 from atlas.api.reporting import router as reporting_router
+from atlas.modules.ai_assistant.contracts import AssistantContract
+from atlas.modules.ai_assistant.service import AssistantService
 from atlas.modules.change_control.contracts import ChangeControlContract
 from atlas.modules.change_control.service import ChangeControlService
 from atlas.modules.commercial.contracts import CommercialContract
@@ -74,6 +77,7 @@ def create_app(
     customer_lifecycle_service: CustomerLifecycleContract | None = None,
     finance_service: FinanceContract | None = None,
     reporting_service: ReportingContract | None = None,
+    assistant_service: AssistantContract | None = None,
     document_storage: DocumentStorage | None = None,
     relying_party: RelyingParty,
     dispose_engine: bool = False,
@@ -114,6 +118,7 @@ def create_app(
     )
     finance = finance_service if finance_service is not None else FinanceService(identity)
     reporting = reporting_service if reporting_service is not None else ReportingService(identity)
+    assistant = assistant_service if assistant_service is not None else AssistantService(identity)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -138,6 +143,7 @@ def create_app(
         customer_lifecycle=customer_lifecycle,
         finance=finance,
         reporting=reporting,
+        assistant=assistant,
         relying_party=relying_party,
     )
     install_error_handlers(app)
@@ -172,6 +178,7 @@ def create_app(
     app.include_router(customer_lifecycle_router)
     app.include_router(finance_router)
     app.include_router(reporting_router)
+    app.include_router(assistant_router)
     return app
 
 

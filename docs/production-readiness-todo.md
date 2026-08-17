@@ -269,6 +269,42 @@ off before production data or users are introduced.
   retry/backoff, dead-letter visibility, cancellation, refresh locking, query
   timeouts, resource limits, and alerts for failed or stale materialized views.
 
+## Phase 11 — Private AI assistant
+
+- [ ] OWNER GATE: choose either a self-hosted open-weight model or a commercial
+  provider under an executed enterprise zero-retention DPA. Approve hosting
+  location, subprocessors, residency, training/retention terms, deletion,
+  incident notification, audit rights, availability, and exit/portability. The
+  provider remains deliberately disabled until this is signed off.
+- [ ] For self-hosting, approve model/license, signed weight provenance, malware
+  scanning, isolated runtime, GPU/CPU capacity, patch cadence, network egress
+  denial, model rollback, supply-chain verification, and secrets-free images.
+  For commercial hosting, approve private networking, scoped credentials,
+  rotation/revocation, request signing, TLS validation, rate/cost limits, and a
+  verified zero-retention configuration.
+- [ ] Approve the provisional `0.80` minimum confidence threshold per intent and
+  evaluate calibration on representative synthetic and legally reviewed cases.
+  Low-confidence model text is currently withheld rather than shown as advice.
+- [ ] Expand prompt-injection testing beyond deterministic signals to indirect
+  injection in PDFs, drawings, emails, OCR, encoded text, multilingual content,
+  tool output, retrieval poisoning, instruction smuggling, and multi-turn/chained
+  attacks. Maintain a versioned red-team corpus and independent sign-off.
+- [ ] Approve retrieval sources, chunking, classification inheritance, scope
+  filtering before retrieval, evidence citation rules, freshness, revocation,
+  poisoning detection, and the rule that retrieved content is data—not system
+  instruction. No raw document text is currently accepted by the HTTP API.
+- [ ] Approve request/response retention and lawful-purpose rules. AI tables and
+  audit events currently persist only digests, lengths, scope IDs, enumerated
+  action/reason codes, confidence, and statuses; raw prompts/responses are not
+  persisted and must not enter logs, traces, analytics, or crash reports.
+- [ ] Approve human review and escalation for recommendations and proposed tasks,
+  including segregation of duties and evidence. Permanently forbid AI approval,
+  payment release, message sending, final budget/quantity/drawing changes,
+  permission/device approval, signing, and deletion at every provider/tool layer.
+- [ ] Establish model monitoring, drift/bias testing, abuse detection, rate and
+  token limits, cost alerts, kill switch, incident response, rollback, audit-log
+  review, provider outage behavior, and periodic reauthorization of the model.
+
 ## Phase 3 — Land, legal, financing, and compliance
 
 - [ ] Approve the due-diligence checklist taxonomy, mandatory categories,

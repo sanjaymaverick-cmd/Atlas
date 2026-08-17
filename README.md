@@ -197,6 +197,13 @@ session and never reuse the transactional session. Responses contain aggregate
 metrics and opaque IDs only. Report generation remains queued for a controlled
 worker and never sends or publishes an export from the HTTP request.
 
+Phase 11 safety foundations expose a fail-closed assistant evaluation endpoint
+under `/api/v1/assistant`. The default provider is disabled because the
+Blueprint §25 hosting decision still requires owner sign-off. Authority policy,
+prompt-injection refusal, confidence gating, minimized digest-only persistence,
+and adversarial tests are implemented without selecting a model, endpoint, or
+vendor and without accepting provider keys or raw document text over HTTP.
+
 The local filesystem adapter is for synthetic development content only. Review
 every item in `docs/production-readiness-todo.md` before introducing real data.
 

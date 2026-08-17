@@ -15,6 +15,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from atlas.api import application
 from atlas.api.application import create_app
+from atlas.modules.ai_assistant.schemas import AssistantOutcome, AssistantRequest
 from atlas.modules.change_control.schemas import ChangeCreate, ChangeSummary
 from atlas.modules.commercial.schemas import BudgetCreate, BudgetSummary
 from atlas.modules.compliance.schemas import (
@@ -444,6 +445,19 @@ class FakeReporting:
         )
 
 
+class FakeAssistant:
+    def __init__(self) -> None:
+        self.calls: list[AssistantRequest] = []
+
+    async def ask(
+        self, session: object, *, actor_user_id: UUID, request: AssistantRequest
+    ) -> AssistantOutcome:
+        self.calls.append(request)
+        return AssistantOutcome(
+            uuid4(), "hosting_not_configured", request.intent, 1, None, None, ()
+        )
+
+
 class FakeDocuments:
     def __init__(self) -> None:
         self.failure: Exception | None = None
@@ -682,6 +696,7 @@ def build_client(
     customer_lifecycle: FakeCustomerLifecycle | None = None,
     finance: FakeFinance | None = None,
     reporting: FakeReporting | None = None,
+    assistant: FakeAssistant | None = None,
 ) -> tuple[httpx.AsyncClient, FakeOrganization, FakeSessionFactory]:
     fake_organization = organization or FakeOrganization()
     session_factory = FakeSessionFactory()
@@ -703,6 +718,7 @@ def build_client(
         customer_lifecycle_service=customer_lifecycle or FakeCustomerLifecycle(),  # type: ignore[arg-type]
         finance_service=finance or FakeFinance(),  # type: ignore[arg-type]
         reporting_service=reporting or FakeReporting(),  # type: ignore[arg-type]
+        assistant_service=assistant or FakeAssistant(),  # type: ignore[arg-type]
         relying_party=RelyingParty(
             rp_id="localhost", rp_name="Atlas Test", origin="http://localhost"
         ),
@@ -886,6 +902,36 @@ async def test_phase10_dashboard_uses_a_distinct_read_only_reporting_session() -
     assert response.status_code == 200
     primary, replica = reporting.sessions[0]
     assert primary is not replica
+    assert sessions.sessions[0].commits == 1
+
+
+async def test_phase11_assistant_endpoint_is_provider_neutral_and_rejects_payloads() -> None:
+    assistant = FakeAssistant()
+    client, _, sessions = build_client(assistant=assistant)
+    async with client:
+        safe = await client.post(
+            "/api/v1/assistant/queries",
+            json={
+                "query": "Summarize synthetic status",
+                "intent": "information",
+                "proposed_action": "summarize_status",
+                "project_id": str(PROJECT_ID),
+            },
+        )
+        rejected = await client.post(
+            "/api/v1/assistant/queries",
+            json={
+                "query": "Synthetic query",
+                "intent": "information",
+                "proposed_action": "answer_question",
+                "provider_api_key": "SYNTHETIC-SECRET",
+                "raw_document_text": "SYNTHETIC CONFIDENTIAL DOCUMENT",
+            },
+        )
+    assert safe.status_code == 200
+    assert safe.json()["status"] == "hosting_not_configured"
+    assert assistant.calls[0].project_id == PROJECT_ID
+    assert rejected.status_code == 422
     assert sessions.sessions[0].commits == 1
 
 
