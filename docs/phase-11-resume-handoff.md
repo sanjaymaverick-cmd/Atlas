@@ -18,9 +18,14 @@ the completed foundation.
 - Remote `main` remains at the original Phase 0 commit `547bbe0`
 - Worktree is clean except for intentionally untracked
   `.claude/settings.local.json`; preserve it and never stage or commit it.
-- GitHub CLI authentication was invalid when publication was attempted. The
-  branch has therefore not been pushed at this checkpoint and no PR was
-  created. Re-authentication is required before publishing.
+- GitHub CLI authentication was invalid when publication was first attempted.
+  It was valid again at the 2026-08-17 verification run (account
+  `sanjaymaverick-cmd`, scopes `gist`, `read:org`, `repo`), so no interactive
+  re-login was needed and the branch could be published.
+- The GitHub repository `sanjaymaverick-cmd/Atlas` is currently **public**.
+  The repository is synthetic-data-only, so nothing sensitive is exposed today,
+  but the owner should confirm this is intended before any real business data,
+  hosting configuration, or credential material is introduced.
 
 ## Non-negotiable operating constraints
 
@@ -68,19 +73,83 @@ The default inference provider fails closed with `hosting_not_configured`.
 - Same-transaction minimized audit event for every evaluated or blocked query.
 - Import-linter boundaries, README guidance, and Phase 11 owner TODO decisions.
 
-## Verified before suspension
+## Verification run of 2026-08-17 (completion gates)
 
-- Ruff repository lint passed and 201 files passed format check.
-- Import-linter: 25 contracts kept, 0 broken across 157 files.
-- Alembic: `0012_phase11_ai_safety` is the sole head.
-- Phase 11 adversarial service tests: 19 passed.
-- Combined HTTP and AI safety tests: 55 passed.
+All gates below were rerun after the Phase 11 changes, from a virtualenv on the
+Linux filesystem (`~/.atlas-venv`) rather than the `/mnt` drive. That removes the
+DrvFs latency that stalled the previous strict-mypy attempt; mypy now completes
+in well under a minute.
+
+| Gate | Result |
+| --- | --- |
+| Ruff lint | passed |
+| Ruff format check | 202 files already formatted |
+| Import-linter | 25 contracts kept, 0 broken (157 files) |
+| Alembic heads | `0012_phase11_ai_safety` is the sole head |
+| Bandit (`-ll`) | 0 medium, 0 high, 0 `nosec` suppressions, 0 skipped tests |
+| pip-audit | no known vulnerabilities (only the local `atlas` package skipped) |
+| Strict mypy | **6 pre-existing errors remain** — see below |
+| pytest (unit) | 278 passed |
+| pytest (PostgreSQL integration) | **38 errored, 0 ran** — see below |
+| Phase 11 AI safety + HTTP tests | 55 passed |
+
+PostgreSQL was available for this run: a local PostgreSQL 16.15 cluster
+(micromamba, port 55432, socket `/tmp`) with a disposable `atlas_test` database.
+The integration tests were therefore *not* skipped for lack of a database — they
+were attempted against a real server and failed in fixture setup.
+
+### Fixed in this run (branch-caused)
+
+- `atlas/api/tests/test_api.py:721` carried a `# type: ignore[arg-type]` on
+  `assistant_service=assistant or FakeAssistant()` that strict mypy reported as
+  unused. `FakeAssistant` satisfies the parameter type, so the suppression was
+  removed. This was the only mypy error introduced by Phase 11.
+
+### Blocking defects found, both pre-existing and out of this branch's scope
+
+Neither defect was introduced by the Phase 11 work, and neither was fixed here.
+Both are recorded in `docs/production-readiness-todo.md` for owner decision.
+
+1. **`db/schema.sql` cannot be applied to a clean database.**
+   `land.due_diligence_items` (line 314) declares
+   `evidence_document_id UUID REFERENCES documents.documents(id)`, but the
+   `documents` schema and its `documents` table are not created until line 406.
+   Applying the canonical DDL to an empty database fails at line 323 with
+   `relation "documents.documents" does not exist`.
+   This dates to Phase 3 commit `7dd0c2f`, not to Phase 11. It is the single
+   reason all 38 PostgreSQL integration tests error in fixture setup, and it
+   means that integration coverage — including the audit hash-chain, append-only
+   trigger, break-glass, and same-transaction audit tests — has not actually
+   executed since Phase 3. Earlier phases were verified with
+   `ATLAS_TEST_DATABASE_URL` unset, so the suite skipped rather than failed and
+   the defect stayed invisible.
+   Hoisting `CREATE SCHEMA documents` alone is not sufficient; this was tested
+   and the apply then fails on the missing table. The `documents` section
+   (lines 406-490) references only `identity` and `organization`, both of which
+   are created before `land`, so relocating that whole section to sit after
+   `organization` and before `land` is a self-contained fix. It is a structural
+   reordering of canonical DDL and needs owner approval on its own change.
+
+2. **Strict mypy cannot resolve `import fitz` (6 errors in 3 files).**
+   `atlas/modules/documents/preview.py:7` and two documents test modules import
+   the deprecated `fitz` alias with `# type: ignore[import-untyped]`. The
+   installed PyMuPDF 1.28.2 ships `fitz` as a deprecated shim without a
+   `py.typed` marker, so mypy reports `import-not-found` and additionally flags
+   the existing `import-untyped` suppression as unused. The import still works
+   at runtime but emits a deprecation warning, and PyMuPDF has announced the
+   alias will be removed.
+   The import line is unchanged since Phase 3 commit `7dd0c2f`; Phase 11 does
+   not touch the documents module. The trigger is `pymupdf>=1.24` being
+   unpinned in `pyproject.toml`, letting a newer release change the packaging.
+   The durable fix is to import `pymupdf` (which does carry `py.typed`) and pin
+   a reviewed version — a documents-module change requiring its own review.
 
 ## Pending gates and work
 
-- Strict mypy was interrupted at the user's save/publish request after repeated
-  mounted-drive WSL stalls; it is not recorded as passing for this checkpoint.
-- Full pytest, Bandit, and pip-audit must be rerun after Phase 11 changes.
+- Strict mypy is **not** clean: 6 pre-existing `fitz` errors remain. The one
+  Phase 11-caused error was fixed in this run.
+- PostgreSQL integration coverage is **not** verified: 38 tests error in fixture
+  setup because the canonical DDL will not apply to a clean database.
 - Owner must approve self-hosted open-weight inference or a commercial provider
   under an executed enterprise zero-retention DPA before a real provider is
   implemented or Phase 11 is declared complete.

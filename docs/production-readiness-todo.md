@@ -27,6 +27,41 @@ off before production data or users are introduced.
 - [ ] Run a production threat-model review, penetration test, access-control
   review, audit-chain verification, restore drill, and secrets scan before
   launch.
+- [ ] Confirm whether the GitHub repository should remain public. It is public
+  as of 2026-08-17. The tree is synthetic-data-only today, but hosting choices,
+  schema detail, and the break-glass design are all visible. Decide before any
+  real data, deployment configuration, or credential material is introduced.
+
+## Verification integrity — found 2026-08-17, blocking
+
+These two defects were found when the Phase 11 completion gates were rerun
+against a real PostgreSQL instance. Neither was introduced by the Phase 11 work;
+both predate it and both need an owner-approved, separately scoped change.
+
+- [ ] BLOCKING: `db/schema.sql` cannot be applied to a clean database.
+  `land.due_diligence_items` references `documents.documents(id)` at line 314,
+  but the `documents` schema is not created until line 406, so a clean apply
+  fails at line 323 with `relation "documents.documents" does not exist`.
+  Consequence: **all 38 PostgreSQL integration tests have errored in fixture
+  setup since Phase 3 (`7dd0c2f`)**, so the audit hash-chain, append-only
+  trigger, break-glass, session-token, and same-transaction audit tests have
+  never actually executed. Earlier phases ran with `ATLAS_TEST_DATABASE_URL`
+  unset, so the suite skipped instead of failing and the defect stayed hidden.
+  Any phase previously declared complete on database-backed behaviour should be
+  re-verified once this is fixed. Moving `CREATE SCHEMA documents` alone is not
+  enough (tested); the `documents` section at lines 406-490 depends only on
+  `identity` and `organization` and can be relocated ahead of `land` as a
+  self-contained fix. Approve that reordering of canonical DDL explicitly.
+- [ ] BLOCKING: strict mypy does not pass. `atlas/modules/documents/preview.py`
+  and two documents test modules `import fitz`, the deprecated PyMuPDF alias.
+  PyMuPDF 1.28.2 ships `fitz` without a `py.typed` marker, so mypy reports
+  `import-not-found` and flags the existing `# type: ignore[import-untyped]`
+  as unused — 6 errors in 3 files. Runtime still works but emits a deprecation
+  warning, and upstream has announced removal of the alias. Root cause is the
+  unpinned `pymupdf>=1.24` in `pyproject.toml`. Approve switching these imports
+  to `pymupdf` (which does carry `py.typed`) and pinning a reviewed version.
+  Pin the version deliberately: this module renders untrusted PDFs, so the
+  sandboxing and version-pinning item under Phase 2 applies to the same change.
 
 ## Phase 2 — Documents
 

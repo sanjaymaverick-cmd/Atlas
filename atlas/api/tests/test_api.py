@@ -718,7 +718,7 @@ def build_client(
         customer_lifecycle_service=customer_lifecycle or FakeCustomerLifecycle(),  # type: ignore[arg-type]
         finance_service=finance or FakeFinance(),  # type: ignore[arg-type]
         reporting_service=reporting or FakeReporting(),  # type: ignore[arg-type]
-        assistant_service=assistant or FakeAssistant(),  # type: ignore[arg-type]
+        assistant_service=assistant or FakeAssistant(),
         relying_party=RelyingParty(
             rp_id="localhost", rp_name="Atlas Test", origin="http://localhost"
         ),
