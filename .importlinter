@@ -1,0 +1,92 @@
+# Module boundary enforcement — Blueprint §22 ("each module exposes a documented
+# interface; other modules integrate against that interface, not against internal
+# tables"). These contracts are what make that requirement mechanical rather than
+# a code-review convention: a PR that reaches into another module's internals
+# fails CI.
+#
+# Run with: lint-imports
+
+[importlinter]
+root_packages =
+    atlas
+include_external_packages = False
+
+
+# ---------------------------------------------------------------------------
+# 1. Layering. Lower layers must not know about higher ones.
+#
+#    owner_console  — aggregates the admin surface across modules
+#    modules        — business modules (identity, organization, audit)
+#    platform       — cross-cutting infra: db, secrets, kms, audit writer,
+#                     access control. Holds no business logic and must never
+#                     import a business module.
+# ---------------------------------------------------------------------------
+[importlinter:contract:layers]
+name = Layered architecture (owner_console > modules > platform)
+type = layers
+layers =
+    atlas.owner_console
+    atlas.modules
+    atlas.platform
+
+
+# ---------------------------------------------------------------------------
+# 2. Module internals are private.
+#
+#    Everything outside a module may import that module's `contracts` and
+#    `schemas` (its published interface and DTOs) and nothing else. In
+#    particular `models` (ORM mappings onto the tables) and `repository`
+#    (raw queries) are unreachable from outside — that is the concrete
+#    mechanism behind "not against internal tables".
+# ---------------------------------------------------------------------------
+[importlinter:contract:identity-private]
+name = Identity internals are private to the identity module
+type = forbidden
+source_modules =
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.owner_console
+forbidden_modules =
+    atlas.modules.identity.models
+    atlas.modules.identity.repository
+    atlas.modules.identity.webauthn_adapter
+
+[importlinter:contract:organization-private]
+name = Organization internals are private to the organization module
+type = forbidden
+source_modules =
+    atlas.modules.identity
+    atlas.modules.audit
+    atlas.owner_console
+forbidden_modules =
+    atlas.modules.organization.models
+    atlas.modules.organization.repository
+
+[importlinter:contract:audit-private]
+name = Audit internals are private to the audit module
+type = forbidden
+source_modules =
+    atlas.modules.identity
+    atlas.modules.organization
+    atlas.owner_console
+forbidden_modules =
+    atlas.modules.audit.models
+    atlas.modules.audit.repository
+
+
+# ---------------------------------------------------------------------------
+# 3. Business modules are independent of one another.
+#
+#    Identity is the base module: Organization and Audit may depend on it
+#    (through its contracts only, per contract 2), but Identity must not
+#    depend on them. This keeps the dependency graph acyclic so each module
+#    stays separately testable.
+# ---------------------------------------------------------------------------
+[importlinter:contract:identity-independent]
+name = Identity does not depend on other business modules
+type = forbidden
+source_modules =
+    atlas.modules.identity
+forbidden_modules =
+    atlas.modules.organization
+    atlas.modules.audit

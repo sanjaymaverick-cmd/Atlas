@@ -81,6 +81,9 @@ CREATE TABLE identity.devices (
   device_name         TEXT,
   passkey_credential_id TEXT NOT NULL UNIQUE,
   public_key          TEXT NOT NULL,
+  -- WebAuthn signature counter. Must increase on every assertion; a counter
+  -- that stalls or goes backwards indicates a cloned authenticator.
+  sign_counter        BIGINT NOT NULL DEFAULT 0,
   trust_level         TEXT NOT NULL DEFAULT 'standard' CHECK (trust_level IN ('standard','elevated')),
   status              TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('pending_approval','active','revoked')),
   enrolled_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -97,6 +100,11 @@ CREATE TABLE identity.sessions (
   session_token_hash TEXT NOT NULL,
   risk_score       NUMERIC(5,2) DEFAULT 0,
   step_up_verified BOOLEAN NOT NULL DEFAULT false,
+  -- When step-up was last satisfied. Without this the boolean above never
+  -- decays, so one step-up would silently authorise every later sensitive
+  -- action for the life of the session. Freshness policy lives in
+  -- atlas/modules/identity/step_up.py.
+  step_up_verified_at TIMESTAMPTZ,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   expires_at       TIMESTAMPTZ NOT NULL,
   revoked_at       TIMESTAMPTZ
@@ -1027,8 +1035,21 @@ CREATE TABLE ai.ai_authority_log (
 -- =====================================================================
 CREATE SCHEMA IF NOT EXISTS audit;
 
+-- Chain position allocator. Deliberately NOT wired as a column DEFAULT (i.e.
+-- not BIGSERIAL): a default is evaluated before BEFORE-INSERT triggers run,
+-- so numbers would be handed out before the chain lock is taken and seq order
+-- would not match chain linkage. compute_record_hash() calls nextval() itself,
+-- inside the lock. See the trigger below.
+CREATE SEQUENCE audit.audit_events_seq;
+
 CREATE TABLE audit.audit_events (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  -- Monotonic chain position. id is a random UUID and created_at is
+  -- transaction-scoped (identical for every row written in one transaction),
+  -- so neither can order the hash chain. seq is the only ordering key the
+  -- chain may use — in the trigger below and in any verifier. Assigned by
+  -- the trigger, not by a default; see audit.audit_events_seq above.
+  seq           BIGINT NOT NULL UNIQUE,
   occurred_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   actor_user_id UUID REFERENCES identity.users(id),
   entity_schema TEXT NOT NULL,
@@ -1061,7 +1082,18 @@ CREATE OR REPLACE FUNCTION audit.compute_record_hash() RETURNS trigger AS $$
 DECLARE
   last_hash TEXT;
 BEGIN
-  SELECT record_hash INTO last_hash FROM audit.audit_events ORDER BY created_at DESC, id DESC LIMIT 1;
+  -- Chain construction is inherently serial: two concurrent inserts that both
+  -- read the same predecessor would fork the chain. Serialise appenders on a
+  -- transaction-scoped advisory lock. Held until commit, so the reader below
+  -- and the eventual insert are atomic with respect to other appenders.
+  PERFORM pg_advisory_xact_lock(hashtext('audit.audit_events'));
+
+  -- Allocate the chain position under the lock, so seq order and hash linkage
+  -- can never disagree. (A BIGSERIAL default would be evaluated before this
+  -- trigger body runs, allowing a writer holding seq=N to chain onto seq=N+1.)
+  NEW.seq := nextval('audit.audit_events_seq');
+
+  SELECT record_hash INTO last_hash FROM audit.audit_events ORDER BY seq DESC LIMIT 1;
   NEW.prev_hash := COALESCE(last_hash, repeat('0', 64));
   NEW.record_hash := encode(
     digest(
