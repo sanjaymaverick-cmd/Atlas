@@ -11,3 +11,11 @@ build/
 .idea/
 *.sqlite3
 .pgdata/
+
+# Python tooling
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.coverage

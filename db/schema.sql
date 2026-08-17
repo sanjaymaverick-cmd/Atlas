@@ -1095,11 +1095,18 @@ BEGIN
 
   SELECT record_hash INTO last_hash FROM audit.audit_events ORDER BY seq DESC LIMIT 1;
   NEW.prev_hash := COALESCE(last_hash, repeat('0', 64));
+  -- occurred_at is normalised to UTC and formatted explicitly rather than cast
+  -- with ::text. A timestamptz cast renders through the *session's* TimeZone
+  -- and DateStyle settings, so the same instant written by a client on
+  -- Asia/Kolkata and verified by one on UTC would hash to two different values
+  -- and the chain would read as tampered. to_char with a fixed pattern is
+  -- stable across both settings and always emits 6 fractional digits.
   NEW.record_hash := encode(
     digest(
       NEW.prev_hash || NEW.entity_schema || NEW.entity_table ||
       COALESCE(NEW.entity_id::text, '') || NEW.action ||
-      COALESCE(NEW.after_state::text, '') || NEW.occurred_at::text,
+      COALESCE(NEW.after_state::text, '') ||
+      to_char(NEW.occurred_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US'),
       'sha256'
     ),
     'hex'
