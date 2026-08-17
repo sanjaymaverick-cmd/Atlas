@@ -219,6 +219,32 @@ off before production data or users are introduced.
   handling, snag clearance, customer acceptance, handover evidence, key/access
   credential transfer, and independent authorization for final handover.
 
+## Phase 9 — Tally import and reconciliation
+
+- [ ] Approve the exact Tally export formats, supported Tally versions, company
+  and legal-entity mapping, fiscal periods, currency/tax treatment, and how an
+  export is proven complete before a batch may be validated.
+- [ ] Keep Tally credentials, license details, bank data, narration, party tax
+  identifiers, unrestricted exports, and raw provider payloads out of source,
+  logs, fixtures, HTTP bodies, and audit events. Source exports must remain in
+  restricted Documents storage with approved classification and retention.
+- [ ] Approve the ledger-mapping taxonomy, maker-checker permissions, effective
+  dates, ambiguity handling, retirement/versioning, and independent review of
+  mappings before real reconciliation runs.
+- [ ] Approve matching tolerances, date windows, rounding, partial/split/merged
+  vouchers, reversals, credit notes, duplicate detection, cross-project
+  allocation, and every discrepancy type. Current behavior creates explicit
+  cases and never silently treats a mismatch as reconciled.
+- [ ] Approve accountant reviewer roles, segregation of duties, resolution
+  codes, evidence requirements, accepted-exception authority, reopen/correction
+  policy, and retention of review notes before production use.
+- [ ] Design the background import queue with authenticated job submission,
+  malware/content validation, bounded parsing, idempotency, retry/backoff,
+  dead-letter visibility, operator cancellation, and resource limits.
+- [ ] Decide whether any future Tally connector may be read-only or bidirectional.
+  Atlas currently has no posting capability; any write-back requires a separate
+  threat model, approval workflow, credential custody design, and owner sign-off.
+
 ## Phase 3 — Land, legal, financing, and compliance
 
 - [ ] Approve the due-diligence checklist taxonomy, mandatory categories,

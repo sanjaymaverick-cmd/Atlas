@@ -31,6 +31,7 @@ from atlas.modules.documents.schemas import (
     RevisionCreate,
     RevisionSummary,
 )
+from atlas.modules.finance.schemas import ImportBatchCreate, ImportBatchSummary
 from atlas.modules.identity.contracts import InvalidCeremonyError
 from atlas.modules.identity.schemas import (
     AuthenticationOutcome,
@@ -384,6 +385,27 @@ class FakeCustomerLifecycle:
         )
 
 
+class FakeFinance:
+    def __init__(self) -> None:
+        self.calls: list[ImportBatchCreate] = []
+
+    async def create_import_batch(
+        self, session: object, *, actor_user_id: UUID, data: ImportBatchCreate
+    ) -> ImportBatchSummary:
+        self.calls.append(data)
+        return ImportBatchSummary(
+            uuid4(),
+            data.legal_entity_id,
+            data.source_document_id,
+            data.content_sha256,
+            data.period_start,
+            data.period_end,
+            "pending_validation",
+            None,
+            1,
+        )
+
+
 class FakeDocuments:
     def __init__(self) -> None:
         self.failure: Exception | None = None
@@ -620,6 +642,7 @@ def build_client(
     project_controls: FakeProjectControls | None = None,
     change_control: FakeChangeControl | None = None,
     customer_lifecycle: FakeCustomerLifecycle | None = None,
+    finance: FakeFinance | None = None,
 ) -> tuple[httpx.AsyncClient, FakeOrganization, FakeSessionFactory]:
     fake_organization = organization or FakeOrganization()
     session_factory = FakeSessionFactory()
@@ -636,6 +659,7 @@ def build_client(
         project_controls_service=project_controls or FakeProjectControls(),  # type: ignore[arg-type]
         change_control_service=change_control or FakeChangeControl(),  # type: ignore[arg-type]
         customer_lifecycle_service=customer_lifecycle or FakeCustomerLifecycle(),  # type: ignore[arg-type]
+        finance_service=finance or FakeFinance(),  # type: ignore[arg-type]
         relying_party=RelyingParty(
             rp_id="localhost", rp_name="Atlas Test", origin="http://localhost"
         ),
@@ -784,6 +808,29 @@ async def test_phase8_booking_route_accepts_ids_and_rejects_embedded_pii() -> No
         )
     assert accepted.status_code == 201
     assert lifecycle.calls[0].booking_document_id == document_id
+    assert rejected.status_code == 422
+    assert sessions.sessions[0].commits == 1
+
+
+async def test_phase9_tally_import_route_accepts_controlled_evidence_only() -> None:
+    finance = FakeFinance()
+    client, _, sessions = build_client(finance=finance)
+    async with client:
+        accepted = await client.post(
+            f"/api/v1/legal-entities/{ENTITY_ID}/tally-imports",
+            json={"source_document_id": str(DOCUMENT_ID), "content_sha256": "a" * 64},
+        )
+        rejected = await client.post(
+            f"/api/v1/legal-entities/{ENTITY_ID}/tally-imports",
+            json={
+                "source_document_id": str(DOCUMENT_ID),
+                "content_sha256": "a" * 64,
+                "raw_tally_export": "SYNTHETIC-PRIVATE-ACCOUNTING-DATA",
+            },
+        )
+    assert accepted.status_code == 201
+    assert finance.calls[0].legal_entity_id == ENTITY_ID
+    assert finance.calls[0].source_document_id == DOCUMENT_ID
     assert rejected.status_code == 422
     assert sessions.sessions[0].commits == 1
 

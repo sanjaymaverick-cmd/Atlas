@@ -329,3 +329,41 @@ forbidden_modules =
     atlas.modules.construction
     atlas.modules.project_controls
     atlas.modules.change_control
+
+[importlinter:contract:finance-private]
+name = Finance internals are private to the finance module
+type = forbidden
+source_modules =
+    atlas.modules.identity
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.documents
+    atlas.modules.land
+    atlas.modules.compliance
+    atlas.modules.commercial
+    atlas.modules.construction
+    atlas.modules.project_controls
+    atlas.modules.change_control
+    atlas.modules.customer_lifecycle
+    atlas.owner_console
+forbidden_modules =
+    atlas.modules.finance.models
+    atlas.modules.finance.service
+allow_indirect_imports = true
+
+[importlinter:contract:finance-independent]
+name = Finance depends only on Identity contracts and platform services
+type = forbidden
+source_modules =
+    atlas.modules.finance
+forbidden_modules =
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.documents
+    atlas.modules.land
+    atlas.modules.compliance
+    atlas.modules.commercial
+    atlas.modules.construction
+    atlas.modules.project_controls
+    atlas.modules.change_control
+    atlas.modules.customer_lifecycle

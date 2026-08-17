@@ -17,6 +17,7 @@ from atlas.modules.compliance.contracts import ComplianceContract
 from atlas.modules.construction.contracts import ConstructionContract
 from atlas.modules.customer_lifecycle.contracts import CustomerLifecycleContract
 from atlas.modules.documents.contracts import DocumentsContract
+from atlas.modules.finance.contracts import FinanceContract
 from atlas.modules.identity.contracts import IdentityContract
 from atlas.modules.identity.schemas import RelyingParty, SessionContext
 from atlas.modules.land.contracts import LandContract
@@ -38,6 +39,7 @@ class ApiServices:
     project_controls: ProjectControlsContract
     change_control: ChangeControlContract
     customer_lifecycle: CustomerLifecycleContract
+    finance: FinanceContract
     relying_party: RelyingParty
 
 

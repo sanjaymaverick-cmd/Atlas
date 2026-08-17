@@ -53,11 +53,12 @@ def upgrade() -> None:
       ADD CONSTRAINT chk_reconciliation_status CHECK (status IN ('open','under_review','reconciled','accepted_exception')),
       ADD CONSTRAINT chk_reconciliation_type CHECK (discrepancy_type IN ('missing_in_tally','missing_in_erp','amount_mismatch','wrong_entity','wrong_project','duplicate_voucher','unallocated_receipt','schedule_not_updated','obligation_still_open')),
       ADD CONSTRAINT chk_reconciliation_erp_amount CHECK (erp_amount IS NULL OR erp_amount >= 0),
-      ADD CONSTRAINT chk_reconciliation_tally_amount CHECK (tally_amount IS NULL OR tally_amount >= 0),
-      ADD CONSTRAINT uq_reconciliation_fact UNIQUE (erp_reference_type, erp_reference_id, tally_voucher_id, discrepancy_type);
+      ADD CONSTRAINT chk_reconciliation_tally_amount CHECK (tally_amount IS NULL OR tally_amount >= 0);
     CREATE INDEX idx_tally_batches_entity_status ON finance.tally_import_batches(legal_entity_id, status);
     CREATE INDEX idx_tally_vouchers_batch ON finance.tally_vouchers(import_batch_id);
     CREATE INDEX idx_reconciliations_entity_status ON finance.reconciliations(legal_entity_id, status);
+    CREATE UNIQUE INDEX uq_reconciliation_fact ON finance.reconciliations(
+      erp_reference_type, erp_reference_id, COALESCE(tally_voucher_id, '00000000-0000-0000-0000-000000000000'::uuid), discrepancy_type);
     CREATE TRIGGER trg_set_updated_at BEFORE UPDATE ON finance.tally_import_batches FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
     CREATE TRIGGER trg_set_updated_at BEFORE UPDATE ON finance.tally_ledger_mappings FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
     """)
@@ -65,8 +66,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute("""
-    DROP INDEX finance.idx_reconciliations_entity_status; DROP INDEX finance.idx_tally_vouchers_batch; DROP INDEX finance.idx_tally_batches_entity_status;
-    ALTER TABLE finance.reconciliations DROP CONSTRAINT uq_reconciliation_fact, DROP CONSTRAINT chk_reconciliation_tally_amount,
+    DROP INDEX finance.uq_reconciliation_fact; DROP INDEX finance.idx_reconciliations_entity_status; DROP INDEX finance.idx_tally_vouchers_batch; DROP INDEX finance.idx_tally_batches_entity_status;
+    ALTER TABLE finance.reconciliations DROP CONSTRAINT chk_reconciliation_tally_amount,
       DROP CONSTRAINT chk_reconciliation_erp_amount, DROP CONSTRAINT chk_reconciliation_type, DROP CONSTRAINT chk_reconciliation_status,
       ADD CONSTRAINT reconciliations_status_check CHECK (status IN ('open','under_review','reconciled')),
       DROP COLUMN archived_at, DROP COLUMN version, DROP COLUMN updated_by, DROP COLUMN created_by, DROP COLUMN resolution_note,

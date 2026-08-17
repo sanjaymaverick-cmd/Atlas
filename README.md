@@ -183,6 +183,13 @@ active booking per unit, installment/collection over-allocation, and linkage to
 an unexecuted or wrong-customer contract. APIs accept controlled Documents IDs,
 not embedded PII, bank credentials, signatures, or provider payloads.
 
+Phase 9 operations cover controlled Tally export registration, validation,
+normalized voucher ingestion, discrepancy cases, and accountant review under
+`/api/v1`. Tally remains the statutory book of record: Atlas cannot post or
+amend vouchers. Source exports stay in restricted Documents records; APIs and
+audit events retain only controlled document IDs, SHA-256 provenance, normalized
+facts, and redacted indicators for ledger, voucher, and resolution narratives.
+
 The local filesystem adapter is for synthetic development content only. Review
 every item in `docs/production-readiness-todo.md` before introducing real data.
 

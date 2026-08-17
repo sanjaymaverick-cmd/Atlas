@@ -1307,8 +1307,7 @@ CREATE TABLE finance.reconciliations (
   created_by         UUID REFERENCES identity.users(id),
   updated_by         UUID REFERENCES identity.users(id),
   version            INTEGER NOT NULL DEFAULT 1,
-  archived_at        TIMESTAMPTZ,
-  UNIQUE (erp_reference_type, erp_reference_id, tally_voucher_id, discrepancy_type)
+  archived_at        TIMESTAMPTZ
 );
 
 CREATE INDEX idx_tally_batches_entity_status
@@ -1316,6 +1315,11 @@ CREATE INDEX idx_tally_batches_entity_status
 CREATE INDEX idx_tally_vouchers_batch ON finance.tally_vouchers(import_batch_id);
 CREATE INDEX idx_reconciliations_entity_status
   ON finance.reconciliations(legal_entity_id, status);
+CREATE UNIQUE INDEX uq_reconciliation_fact ON finance.reconciliations(
+  erp_reference_type, erp_reference_id,
+  COALESCE(tally_voucher_id, '00000000-0000-0000-0000-000000000000'::uuid),
+  discrepancy_type
+);
 
 CREATE TABLE finance.payments (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),

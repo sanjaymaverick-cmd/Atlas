@@ -22,6 +22,7 @@ from atlas.api.customer_lifecycle import router as customer_lifecycle_router
 from atlas.api.dependencies import ApiServices
 from atlas.api.documents import router as documents_router
 from atlas.api.errors import error_body, install_error_handlers
+from atlas.api.finance import router as finance_router
 from atlas.api.land import router as land_router
 from atlas.api.project_controls import router as project_controls_router
 from atlas.api.projects import router as projects_router
@@ -38,6 +39,8 @@ from atlas.modules.customer_lifecycle.service import CustomerLifecycleService
 from atlas.modules.documents.contracts import DocumentsContract
 from atlas.modules.documents.service import DocumentsService
 from atlas.modules.documents.storage import DocumentStorage, LocalDocumentStorage
+from atlas.modules.finance.contracts import FinanceContract
+from atlas.modules.finance.service import FinanceService
 from atlas.modules.identity.contracts import IdentityContract
 from atlas.modules.identity.schemas import RelyingParty
 from atlas.modules.identity.service import IdentityService
@@ -64,6 +67,7 @@ def create_app(
     project_controls_service: ProjectControlsContract | None = None,
     change_control_service: ChangeControlContract | None = None,
     customer_lifecycle_service: CustomerLifecycleContract | None = None,
+    finance_service: FinanceContract | None = None,
     document_storage: DocumentStorage | None = None,
     relying_party: RelyingParty,
     dispose_engine: bool = False,
@@ -102,6 +106,7 @@ def create_app(
         if customer_lifecycle_service is not None
         else CustomerLifecycleService(identity, organization, commercial)
     )
+    finance = finance_service if finance_service is not None else FinanceService(identity)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -122,6 +127,7 @@ def create_app(
         project_controls=project_controls,
         change_control=change_control,
         customer_lifecycle=customer_lifecycle,
+        finance=finance,
         relying_party=relying_party,
     )
     install_error_handlers(app)
@@ -152,6 +158,7 @@ def create_app(
     app.include_router(project_controls_router)
     app.include_router(change_control_router)
     app.include_router(customer_lifecycle_router)
+    app.include_router(finance_router)
     return app
 
 
