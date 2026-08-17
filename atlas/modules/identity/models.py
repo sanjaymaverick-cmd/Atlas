@@ -124,6 +124,23 @@ class Session(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class WebAuthnChallenge(Base):
+    """Short-lived, one-time server state for a WebAuthn ceremony."""
+
+    __tablename__ = "webauthn_challenges"
+    __table_args__ = {"schema": "identity"}
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    user_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("identity.users.id")
+    )
+    ceremony_type: Mapped[str] = mapped_column(String)
+    challenge: Mapped[str] = mapped_column(String)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class BreakGlassCredential(Base):
     """Blueprint §3.2.
 

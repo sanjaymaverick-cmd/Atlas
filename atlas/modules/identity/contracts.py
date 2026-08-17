@@ -14,12 +14,31 @@ isolation, and it exists in exactly one place.
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Any, Protocol
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from atlas.modules.identity.schemas import DeviceSummary, SessionContext, UserSummary
+from atlas.modules.identity.schemas import (
+    AuthenticationOutcome,
+    CeremonyOptions,
+    DeviceSummary,
+    RelyingParty,
+    SessionContext,
+    UserSummary,
+)
+
+
+class IdentityError(Exception):
+    """Base class for refusals that may cross the Identity boundary."""
+
+
+class InvalidCeremonyError(IdentityError):
+    """An unknown, expired, consumed, or wrong-kind WebAuthn ceremony."""
+
+
+class WebAuthnError(IdentityError):
+    """A WebAuthn response that cannot be safely verified."""
 
 
 class IdentityContract(Protocol):
@@ -73,3 +92,30 @@ class IdentityContract(Protocol):
         the stored hash or Identity's session rows.
         """
         ...
+
+    async def begin_registration(
+        self, session: AsyncSession, *, user_id: UUID, rp: RelyingParty
+    ) -> CeremonyOptions: ...
+
+    async def complete_registration(
+        self,
+        session: AsyncSession,
+        *,
+        ceremony_id: UUID,
+        credential: dict[str, Any],
+        device_name: str | None,
+        rp: RelyingParty,
+    ) -> UUID: ...
+
+    async def begin_authentication(
+        self, session: AsyncSession, *, rp: RelyingParty
+    ) -> CeremonyOptions: ...
+
+    async def complete_authentication(
+        self,
+        session: AsyncSession,
+        *,
+        ceremony_id: UUID,
+        credential: dict[str, Any],
+        rp: RelyingParty,
+    ) -> AuthenticationOutcome: ...

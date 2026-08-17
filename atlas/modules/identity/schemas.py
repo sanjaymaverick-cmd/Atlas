@@ -11,9 +11,32 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from atlas.platform.access_control import DeviceTrust
+
+
+@dataclass(frozen=True, slots=True)
+class CeremonyOptions:
+    ceremony_id: UUID
+    public_key: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class AuthenticationOutcome:
+    session_token: str | None
+    expires_at: datetime | None
+    clone_detected: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class RelyingParty:
+    """Stable WebAuthn relying-party identity and allowed browser origin."""
+
+    rp_id: str
+    rp_name: str
+    origin: str
 
 
 @dataclass(frozen=True, slots=True)

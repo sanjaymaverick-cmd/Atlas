@@ -110,6 +110,22 @@ CREATE TABLE identity.sessions (
   revoked_at       TIMESTAMPTZ
 );
 
+-- One-time server-side WebAuthn ceremony state. Challenges are short-lived,
+-- consumed under a row lock, and contain no credential or session secret.
+CREATE TABLE identity.webauthn_challenges (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         UUID REFERENCES identity.users(id),
+  ceremony_type   TEXT NOT NULL CHECK (ceremony_type IN ('registration','authentication')),
+  challenge       TEXT NOT NULL,
+  expires_at      TIMESTAMPTZ NOT NULL,
+  used_at         TIMESTAMPTZ,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_webauthn_challenges_expires
+  ON identity.webauthn_challenges(expires_at)
+  WHERE used_at IS NULL;
+
 -- Blueprint §3.2: break-glass secondary admin for the single-owner-console risk.
 CREATE TABLE identity.break_glass_credentials (
   id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -334,7 +350,7 @@ CREATE SCHEMA IF NOT EXISTS documents;
 
 CREATE TABLE documents.documents (
   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id     UUID REFERENCES organization.projects(id),
+  project_id     UUID NOT NULL REFERENCES organization.projects(id),
   building_id    UUID REFERENCES organization.buildings(id),
   floor_id       UUID REFERENCES organization.floors(id),
   unit_id        UUID REFERENCES organization.units(id),
@@ -347,6 +363,8 @@ CREATE TABLE documents.documents (
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   created_by     UUID REFERENCES identity.users(id),
+  updated_by     UUID REFERENCES identity.users(id),
+  version        INTEGER NOT NULL DEFAULT 1,
   archived_at    TIMESTAMPTZ
 );
 
@@ -361,15 +379,54 @@ CREATE TABLE documents.document_versions (
   approver_id             UUID REFERENCES identity.users(id),
   superseded_version_id   UUID REFERENCES documents.document_versions(id),
   related_change_request_id UUID,   -- FK added once construction.change_requests exists (Phase 7)
-  object_storage_key      TEXT NOT NULL,
-  checksum_sha256         TEXT,
-  status                  TEXT NOT NULL DEFAULT 'draft',
+  object_storage_key      TEXT NOT NULL UNIQUE,
+  checksum_sha256         TEXT NOT NULL CHECK (checksum_sha256 ~ '^[0-9a-f]{64}$'),
+  status                  TEXT NOT NULL DEFAULT 'draft'
+    CHECK (status IN (
+      'draft','virus_scanned','quarantined','under_review','approved','issued','superseded'
+    )),
   created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (document_id, revision_code)
 );
 
 CREATE INDEX idx_documents_project ON documents.documents(project_id);
 CREATE INDEX idx_document_versions_document ON documents.document_versions(document_id);
+
+CREATE TABLE documents.preview_grants (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  document_version_id UUID NOT NULL REFERENCES documents.document_versions(id),
+  session_id        UUID NOT NULL REFERENCES identity.sessions(id),
+  created_by        UUID NOT NULL REFERENCES identity.users(id),
+  token_hash        TEXT NOT NULL UNIQUE,
+  watermark_text    TEXT NOT NULL,
+  expires_at        TIMESTAMPTZ NOT NULL,
+  revoked_at        TIMESTAMPTZ,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE documents.export_requests (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  document_version_id UUID NOT NULL REFERENCES documents.document_versions(id),
+  requested_by      UUID NOT NULL REFERENCES identity.users(id),
+  approved_by       UUID REFERENCES identity.users(id),
+  reason            TEXT NOT NULL,
+  decision_reason   TEXT,
+  status            TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending','approved','rejected','expired','downloaded')),
+  expires_at        TIMESTAMPTZ,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  version           INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE INDEX idx_preview_grants_expiry
+  ON documents.preview_grants(expires_at) WHERE revoked_at IS NULL;
+CREATE INDEX idx_export_requests_revision
+  ON documents.export_requests(document_version_id, status);
+CREATE UNIQUE INDEX uq_export_requests_pending_requester
+  ON documents.export_requests(document_version_id, requested_by)
+  WHERE status = 'pending';
 
 -- =====================================================================
 -- SCHEMA: design   (Blueprint §14 BIM Integration)

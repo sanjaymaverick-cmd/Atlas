@@ -17,11 +17,30 @@ had no column for it at all, so this check was impossible until
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from typing import Any
 
+from webauthn import (
+    generate_authentication_options,
+    generate_registration_options,
+    verify_authentication_response,
+    verify_registration_response,
+)
+from webauthn.helpers import (
+    base64url_to_bytes,
+    bytes_to_base64url,
+    options_to_json,
+    parse_authentication_credential_json,
+)
+from webauthn.helpers.structs import (
+    AuthenticatorSelectionCriteria,
+    ResidentKeyRequirement,
+    UserVerificationRequirement,
+)
 
-class WebAuthnError(Exception):
-    """Base class for ceremony failures."""
+from atlas.modules.identity.contracts import WebAuthnError
+from atlas.modules.identity.schemas import RelyingParty
 
 
 class ClonedAuthenticatorError(WebAuthnError):
@@ -42,17 +61,96 @@ class ClonedAuthenticatorError(WebAuthnError):
 
 
 @dataclass(frozen=True, slots=True)
-class RelyingParty:
-    """Who we are, from the authenticator's point of view.
+class RegistrationResult:
+    credential_id: str
+    public_key: str
+    sign_count: int
 
-    ``rp_id`` is bound into every credential at registration and cannot be
-    changed afterwards without invalidating every enrolled passkey — so it is
-    configuration, deliberately not a constant in this file.
-    """
 
-    rp_id: str
-    rp_name: str
-    origin: str
+@dataclass(frozen=True, slots=True)
+class AuthenticationResult:
+    credential_id: str
+    sign_count: int
+
+
+def registration_options(
+    *, rp: RelyingParty, user_id: bytes, user_name: str, user_display_name: str
+) -> tuple[bytes, dict[str, Any]]:
+    options = generate_registration_options(
+        rp_id=rp.rp_id,
+        rp_name=rp.rp_name,
+        user_id=user_id,
+        user_name=user_name,
+        user_display_name=user_display_name,
+        authenticator_selection=AuthenticatorSelectionCriteria(
+            resident_key=ResidentKeyRequirement.REQUIRED,
+            require_resident_key=True,
+            user_verification=UserVerificationRequirement.REQUIRED,
+        ),
+    )
+    return options.challenge, json.loads(options_to_json(options))
+
+
+def verify_registration(
+    *, rp: RelyingParty, expected_challenge: bytes, credential: dict[str, Any]
+) -> RegistrationResult:
+    try:
+        verified = verify_registration_response(
+            credential=credential,
+            expected_challenge=expected_challenge,
+            expected_rp_id=rp.rp_id,
+            expected_origin=rp.origin,
+            require_user_verification=True,
+        )
+    except Exception as exc:
+        raise WebAuthnError("registration verification failed") from exc
+    return RegistrationResult(
+        credential_id=bytes_to_base64url(verified.credential_id),
+        public_key=bytes_to_base64url(verified.credential_public_key),
+        sign_count=verified.sign_count,
+    )
+
+
+def authentication_options(*, rp: RelyingParty) -> tuple[bytes, dict[str, Any]]:
+    options = generate_authentication_options(
+        rp_id=rp.rp_id,
+        user_verification=UserVerificationRequirement.REQUIRED,
+    )
+    return options.challenge, json.loads(options_to_json(options))
+
+
+def credential_id_from_authentication(credential: dict[str, Any]) -> str:
+    try:
+        parsed = parse_authentication_credential_json(credential)
+    except Exception as exc:
+        raise WebAuthnError("authentication credential is malformed") from exc
+    return bytes_to_base64url(parsed.raw_id)
+
+
+def verify_authentication(
+    *,
+    rp: RelyingParty,
+    expected_challenge: bytes,
+    credential: dict[str, Any],
+    credential_public_key: str,
+    current_sign_count: int,
+) -> AuthenticationResult:
+    try:
+        verified = verify_authentication_response(
+            credential=credential,
+            expected_challenge=expected_challenge,
+            expected_rp_id=rp.rp_id,
+            expected_origin=rp.origin,
+            credential_public_key=base64url_to_bytes(credential_public_key),
+            credential_current_sign_count=current_sign_count,
+            require_user_verification=True,
+        )
+    except Exception as exc:
+        raise WebAuthnError("authentication verification failed") from exc
+    return AuthenticationResult(
+        credential_id=credential_id_from_authentication(credential),
+        sign_count=verified.new_sign_count,
+    )
 
 
 def verify_sign_counter(*, stored: int, presented: int) -> int:

@@ -9,13 +9,41 @@ from __future__ import annotations
 
 import pytest
 
+from atlas.modules.identity.schemas import RelyingParty
 from atlas.modules.identity.webauthn_adapter import (
     ClonedAuthenticatorError,
+    authentication_options,
     is_enrollment_usable,
+    registration_options,
     verify_sign_counter,
 )
 
 pytestmark = pytest.mark.unit
+
+RP = RelyingParty(rp_id="localhost", rp_name="Atlas Test", origin="http://localhost")
+
+
+def test_registration_options_require_a_discoverable_user_verified_credential() -> None:
+    challenge, options = registration_options(
+        rp=RP,
+        user_id=b"synthetic-user-id",
+        user_name="synthetic@example.invalid",
+        user_display_name="Synthetic User",
+    )
+    assert challenge
+    assert options["rp"]["id"] == "localhost"
+    assert options["authenticatorSelection"] == {
+        "requireResidentKey": True,
+        "residentKey": "required",
+        "userVerification": "required",
+    }
+
+
+def test_authentication_options_require_user_verification() -> None:
+    challenge, options = authentication_options(rp=RP)
+    assert challenge
+    assert options["rpId"] == "localhost"
+    assert options["userVerification"] == "required"
 
 
 class TestSignCounter:

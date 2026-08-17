@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from contextlib import AbstractAsyncContextManager
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import httpx
@@ -12,7 +14,22 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from atlas.api import application
 from atlas.api.application import create_app
-from atlas.modules.identity.schemas import SessionContext
+from atlas.modules.documents.contracts import DocumentConflictError
+from atlas.modules.documents.schemas import (
+    DocumentCreate,
+    DocumentSummary,
+    ExportRequestSummary,
+    PreviewGrant,
+    RevisionCreate,
+    RevisionSummary,
+)
+from atlas.modules.identity.contracts import InvalidCeremonyError
+from atlas.modules.identity.schemas import (
+    AuthenticationOutcome,
+    CeremonyOptions,
+    RelyingParty,
+    SessionContext,
+)
 from atlas.modules.organization.contracts import ConflictError, NotAuthorisedError, NotFoundError
 from atlas.modules.organization.schemas import ProjectCreate, ProjectSummary, ProjectUpdate
 from atlas.platform.access_control import DeviceTrust
@@ -22,6 +39,8 @@ pytestmark = pytest.mark.unit
 ACTOR_ID = UUID("11111111-1111-1111-1111-111111111111")
 ENTITY_ID = UUID("22222222-2222-2222-2222-222222222222")
 PROJECT_ID = UUID("33333333-3333-3333-3333-333333333333")
+DOCUMENT_ID = UUID("44444444-4444-4444-4444-444444444444")
+REVISION_ID = UUID("55555555-5555-5555-5555-555555555555")
 
 
 def project(*, archived: bool = False, version: int = 1) -> ProjectSummary:
@@ -96,9 +115,15 @@ class FakeEngine:
 
 
 class FakeIdentity:
-    def __init__(self, *, authenticated: bool = True) -> None:
+    def __init__(
+        self, *, authenticated: bool = True, step_up: bool = False, risk_score: float = 0
+    ) -> None:
         self.authenticated = authenticated
+        self.step_up = step_up
+        self.risk_score = risk_score
         self.tokens: list[str] = []
+        self.ceremony_failure: Exception | None = None
+        self.clone_detected = False
 
     async def authenticate_session_token(
         self, session: object, token: str
@@ -113,11 +138,55 @@ class FakeIdentity:
             user_status="active",
             device_status="active",
             device_trust=DeviceTrust.ELEVATED,
-            risk_score=0,
-            step_up_verified=False,
-            step_up_verified_at=None,
+            risk_score=self.risk_score,
+            step_up_verified=self.step_up,
+            step_up_verified_at=datetime.now(UTC) if self.step_up else None,
             expires_at=datetime.now(UTC) + timedelta(hours=1),
             revoked_at=None,
+        )
+
+    async def begin_registration(
+        self, session: object, *, user_id: UUID, rp: RelyingParty
+    ) -> CeremonyOptions:
+        return CeremonyOptions(
+            ceremony_id=PROJECT_ID,
+            public_key={"challenge": "synthetic-registration-challenge", "rp": {"id": rp.rp_id}},
+        )
+
+    async def complete_registration(
+        self,
+        session: object,
+        *,
+        ceremony_id: UUID,
+        credential: dict[str, object],
+        device_name: str | None,
+        rp: RelyingParty,
+    ) -> UUID:
+        if self.ceremony_failure is not None:
+            raise self.ceremony_failure
+        return PROJECT_ID
+
+    async def begin_authentication(self, session: object, *, rp: RelyingParty) -> CeremonyOptions:
+        return CeremonyOptions(
+            ceremony_id=PROJECT_ID,
+            public_key={"challenge": "synthetic-authentication-challenge", "rpId": rp.rp_id},
+        )
+
+    async def complete_authentication(
+        self,
+        session: object,
+        *,
+        ceremony_id: UUID,
+        credential: dict[str, object],
+        rp: RelyingParty,
+    ) -> AuthenticationOutcome:
+        if self.ceremony_failure is not None:
+            raise self.ceremony_failure
+        if self.clone_detected:
+            return AuthenticationOutcome(None, None, clone_detected=True)
+        return AuthenticationOutcome(
+            "synthetic-opaque-token",
+            datetime(2026, 8, 18, tzinfo=UTC),
         )
 
 
@@ -171,11 +240,235 @@ class FakeOrganization:
         return project(archived=True, version=2)
 
 
+class FakeDocuments:
+    def __init__(self) -> None:
+        self.failure: Exception | None = None
+        self.calls: list[tuple[str, UUID, object]] = []
+
+    def _document(self, *, archived: bool = False, version: int = 1) -> DocumentSummary:
+        return DocumentSummary(
+            id=DOCUMENT_ID,
+            project_id=PROJECT_ID,
+            discipline="architectural",
+            drawing_number="SYN-A-001",
+            document_type="drawing",
+            classification="confidential",
+            status="archived" if archived else "uploaded",
+            version=version,
+            archived_at=datetime.now(UTC) if archived else None,
+        )
+
+    def _raise(self) -> None:
+        if self.failure is not None:
+            raise self.failure
+
+    async def get_document(
+        self, session: object, *, actor_user_id: UUID, document_id: UUID
+    ) -> DocumentSummary:
+        self._raise()
+        self.calls.append(("get_document", actor_user_id, document_id))
+        return self._document()
+
+    async def list_documents(
+        self, session: object, *, actor_user_id: UUID, project_id: UUID
+    ) -> list[DocumentSummary]:
+        self._raise()
+        self.calls.append(("list_documents", actor_user_id, project_id))
+        return [self._document()]
+
+    async def create_document(
+        self, session: object, *, actor_user_id: UUID, data: DocumentCreate
+    ) -> DocumentSummary:
+        self._raise()
+        self.calls.append(("create_document", actor_user_id, data))
+        return self._document()
+
+    async def add_revision(
+        self,
+        session: object,
+        *,
+        actor_user_id: UUID,
+        document_id: UUID,
+        data: RevisionCreate,
+    ) -> RevisionSummary:
+        self._raise()
+        self.calls.append(("add_revision", actor_user_id, data))
+        return RevisionSummary(
+            id=REVISION_ID,
+            document_id=document_id,
+            revision_code=data.revision_code,
+            issue_purpose=data.issue_purpose,
+            issue_date=data.issue_date,
+            author_id=actor_user_id,
+            superseded_version_id=None,
+            object_storage_key=data.object_storage_key,
+            checksum_sha256=data.checksum_sha256,
+            status="draft",
+            created_at=datetime.now(UTC),
+        )
+
+    async def add_revision_content(
+        self,
+        session: object,
+        *,
+        actor_user_id: UUID,
+        document_id: UUID,
+        revision_code: str,
+        content: bytes,
+        issue_purpose: str | None,
+        issue_date: date | None,
+    ) -> RevisionSummary:
+        return await self.add_revision(
+            session,
+            actor_user_id=actor_user_id,
+            document_id=document_id,
+            data=RevisionCreate(
+                revision_code,
+                "server/generated/synthetic-object",
+                "a" * 64,
+                issue_purpose,
+                issue_date,
+            ),
+        )
+
+    async def list_revisions(
+        self, session: object, *, actor_user_id: UUID, document_id: UUID
+    ) -> list[RevisionSummary]:
+        return [
+            await self.add_revision(
+                session,
+                actor_user_id=actor_user_id,
+                document_id=document_id,
+                data=RevisionCreate("A", "synthetic/object", "a" * 64),
+            )
+        ]
+
+    async def archive_document(
+        self, session: object, *, actor_user_id: UUID, document_id: UUID
+    ) -> DocumentSummary:
+        self._raise()
+        self.calls.append(("archive_document", actor_user_id, document_id))
+        return self._document(archived=True, version=2)
+
+    async def record_scan_result(
+        self,
+        session: object,
+        *,
+        actor_user_id: UUID,
+        revision_id: UUID,
+        clean: bool,
+    ) -> RevisionSummary:
+        value = await self.add_revision(
+            session,
+            actor_user_id=actor_user_id,
+            document_id=DOCUMENT_ID,
+            data=RevisionCreate("A", "synthetic/object", "a" * 64),
+        )
+        return replace(value, status="virus_scanned" if clean else "quarantined")
+
+    async def transition_revision(
+        self,
+        session: object,
+        *,
+        actor_user_id: UUID,
+        revision_id: UUID,
+        target_status: str,
+    ) -> RevisionSummary:
+        value = await self.record_scan_result(
+            session,
+            actor_user_id=actor_user_id,
+            revision_id=revision_id,
+            clean=True,
+        )
+        return replace(value, status=target_status)
+
+    async def create_preview_grant(
+        self,
+        session: object,
+        *,
+        actor_user_id: UUID,
+        session_id: UUID,
+        revision_id: UUID,
+        device_trust: DeviceTrust,
+    ) -> PreviewGrant:
+        return PreviewGrant(
+            id=REVISION_ID,
+            token="synthetic-preview-token",  # noqa: S106
+            expires_at=datetime.now(UTC) + timedelta(minutes=10),
+            watermark_text=f"ATLAS user:{actor_user_id} session:{session_id}",
+        )
+
+    async def render_preview(
+        self,
+        session: object,
+        *,
+        actor_user_id: UUID,
+        session_id: UUID,
+        token: str,
+        device_trust: DeviceTrust,
+    ) -> bytes:
+        return b"%PDF-1.7\n% synthetic watermarked preview"
+
+    async def request_export(
+        self,
+        session: object,
+        *,
+        actor_user_id: UUID,
+        revision_id: UUID,
+        reason: str,
+        device_trust: DeviceTrust,
+    ) -> ExportRequestSummary:
+        return ExportRequestSummary(
+            id=REVISION_ID,
+            document_version_id=revision_id,
+            requested_by=actor_user_id,
+            approved_by=None,
+            reason=reason,
+            decision_reason=None,
+            status="pending",
+            expires_at=None,
+            version=1,
+        )
+
+    async def decide_export(
+        self,
+        session: object,
+        *,
+        actor_user_id: UUID,
+        request_id: UUID,
+        approve: bool,
+        decision_reason: str,
+        device_trust: DeviceTrust,
+    ) -> ExportRequestSummary:
+        return ExportRequestSummary(
+            id=request_id,
+            document_version_id=REVISION_ID,
+            requested_by=uuid4(),
+            approved_by=actor_user_id,
+            reason="Synthetic export",
+            decision_reason=decision_reason,
+            status="approved" if approve else "rejected",
+            expires_at=datetime.now(UTC) + timedelta(minutes=15) if approve else None,
+            version=2,
+        )
+
+    async def download_export(
+        self,
+        session: object,
+        *,
+        actor_user_id: UUID,
+        request_id: UUID,
+        device_trust: DeviceTrust,
+    ) -> bytes:
+        return b"synthetic controlled export"
+
+
 def build_client(
     *,
     engine: FakeEngine | None = None,
     identity: FakeIdentity | None = None,
     organization: FakeOrganization | None = None,
+    documents: FakeDocuments | None = None,
 ) -> tuple[httpx.AsyncClient, FakeOrganization, FakeSessionFactory]:
     fake_organization = organization or FakeOrganization()
     session_factory = FakeSessionFactory()
@@ -184,6 +477,10 @@ def build_client(
         session_factory=session_factory,  # type: ignore[arg-type]
         identity_service=identity or FakeIdentity(),  # type: ignore[arg-type]
         organization_service=fake_organization,
+        documents_service=documents or FakeDocuments(),
+        relying_party=RelyingParty(
+            rp_id="localhost", rp_name="Atlas Test", origin="http://localhost"
+        ),
     )
     client = httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
@@ -219,6 +516,9 @@ async def test_factory_can_dispose_an_owned_engine() -> None:
         session_factory=FakeSessionFactory(),  # type: ignore[arg-type]
         identity_service=FakeIdentity(),  # type: ignore[arg-type]
         organization_service=FakeOrganization(),
+        relying_party=RelyingParty(
+            rp_id="localhost", rp_name="Atlas Test", origin="http://localhost"
+        ),
         dispose_engine=True,
     )
     async with app.router.lifespan_context(app):
@@ -234,6 +534,7 @@ def test_default_factory_requires_a_database_url(monkeypatch: pytest.MonkeyPatch
 
 def test_default_factory_wires_the_environment_database_url(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     engine = FakeEngine()
     factory = FakeSessionFactory()
@@ -244,6 +545,9 @@ def test_default_factory_wires_the_environment_database_url(
         return engine
 
     monkeypatch.setenv("ATLAS_DATABASE_URL", "postgresql+asyncpg://localhost/atlas")
+    monkeypatch.setenv("ATLAS_WEBAUTHN_RP_ID", "localhost")
+    monkeypatch.setenv("ATLAS_WEBAUTHN_ORIGIN", "http://localhost")
+    monkeypatch.setenv("ATLAS_DOCUMENT_STORAGE_ROOT", str(tmp_path / "documents"))
     monkeypatch.setattr(application, "create_engine", fake_create_engine)
     monkeypatch.setattr(application, "create_session_factory", lambda value: factory)
     app = application.create_default_app()
@@ -267,6 +571,13 @@ async def test_project_routes_require_an_active_opaque_session(header: str | Non
 
 async def test_unknown_bearer_token_is_rejected() -> None:
     client, _, _ = build_client(identity=FakeIdentity(authenticated=False))
+    async with client:
+        response = await client.get(f"/api/v1/projects/{PROJECT_ID}")
+    assert response.status_code == 401
+
+
+async def test_high_risk_session_is_rejected_at_the_common_boundary() -> None:
+    client, _, _ = build_client(identity=FakeIdentity(risk_score=51))
     async with client:
         response = await client.get(f"/api/v1/projects/{PROJECT_ID}")
     assert response.status_code == 401
@@ -341,3 +652,190 @@ async def test_request_validation_uses_the_error_envelope() -> None:
     body = response.json()["error"]
     assert body["code"] == "validation_error"
     assert len(body["details"]) == 2
+
+
+async def test_webauthn_registration_routes_return_browser_options_and_pending_device() -> None:
+    client, _, sessions = build_client()
+    client.headers.pop("Authorization")
+    async with client:
+        options = await client.post(
+            "/api/v1/auth/webauthn/registration/options",
+            json={"user_id": str(ACTOR_ID)},
+        )
+        verified = await client.post(
+            "/api/v1/auth/webauthn/registration/verify",
+            json={
+                "ceremony_id": str(PROJECT_ID),
+                "credential": {"id": "synthetic-credential"},
+                "device_name": "Synthetic laptop",
+            },
+        )
+    assert options.status_code == 200
+    assert options.json()["public_key"]["rp"]["id"] == "localhost"
+    assert verified.status_code == 200
+    assert verified.json() == {
+        "device_id": str(PROJECT_ID),
+        "status": "pending_approval",
+    }
+    assert [session.commits for session in sessions.sessions] == [1, 1]
+
+
+async def test_webauthn_authentication_returns_only_a_new_opaque_session_token() -> None:
+    client, _, _ = build_client()
+    client.headers.pop("Authorization")
+    async with client:
+        options = await client.post("/api/v1/auth/webauthn/authentication/options")
+        verified = await client.post(
+            "/api/v1/auth/webauthn/authentication/verify",
+            json={
+                "ceremony_id": str(PROJECT_ID),
+                "credential": {"id": "synthetic-credential"},
+            },
+        )
+    assert options.json()["public_key"]["rpId"] == "localhost"
+    assert verified.status_code == 200
+    assert verified.json()["session_token"] == "synthetic-opaque-token"  # noqa: S105
+    assert verified.json()["token_type"] == "bearer"  # noqa: S105
+    assert "jwt" not in verified.text.lower()
+
+
+async def test_invalid_or_cloned_webauthn_assertions_have_safe_failures() -> None:
+    identity = FakeIdentity()
+    identity.ceremony_failure = InvalidCeremonyError("sensitive diagnostic")
+    client, _, sessions = build_client(identity=identity)
+    async with client:
+        invalid = await client.post(
+            "/api/v1/auth/webauthn/authentication/verify",
+            json={"ceremony_id": str(PROJECT_ID), "credential": {}},
+        )
+    assert invalid.status_code == 401
+    assert invalid.json()["error"]["code"] == "authentication_failed"
+    assert "sensitive" not in invalid.text
+    assert sessions.sessions[0].commits == 1
+
+    identity = FakeIdentity()
+    identity.clone_detected = True
+    client, _, sessions = build_client(identity=identity)
+    async with client:
+        cloned = await client.post(
+            "/api/v1/auth/webauthn/authentication/verify",
+            json={"ceremony_id": str(PROJECT_ID), "credential": {}},
+        )
+    assert cloned.status_code == 401
+    assert "session_token" not in cloned.text
+    assert sessions.sessions[0].commits == 1
+
+
+async def test_document_registry_and_revision_routes_are_thin_contract_calls() -> None:
+    documents = FakeDocuments()
+    client, _, _ = build_client(documents=documents)
+    checksum = "a" * 64
+    async with client:
+        created = await client.post(
+            f"/api/v1/projects/{PROJECT_ID}/documents",
+            json={
+                "discipline": "architectural",
+                "drawing_number": "SYN-A-001",
+                "document_type": "drawing",
+                "classification": "confidential",
+            },
+        )
+        revision = await client.post(
+            f"/api/v1/documents/{DOCUMENT_ID}/revisions",
+            json={
+                "revision_code": "A",
+                "object_storage_key": "synthetic/project/document/revision-a.pdf",
+                "checksum_sha256": checksum,
+            },
+        )
+        listed = await client.get(f"/api/v1/projects/{PROJECT_ID}/documents")
+        archived = await client.post(f"/api/v1/documents/{DOCUMENT_ID}/archive")
+    assert created.status_code == 201
+    assert revision.status_code == 201
+    assert revision.json()["checksum_sha256"] == checksum
+    assert listed.json()[0]["drawing_number"] == "SYN-A-001"
+    assert archived.json()["version"] == 2
+    assert [call[0] for call in documents.calls] == [
+        "create_document",
+        "add_revision",
+        "list_documents",
+        "archive_document",
+    ]
+
+
+@pytest.mark.parametrize(
+    "storage_key",
+    ["/etc/synthetic", "../synthetic", "https://example.invalid/object"],
+)
+async def test_revision_rejects_paths_and_urls(storage_key: str) -> None:
+    client, _, _ = build_client()
+    async with client:
+        response = await client.post(
+            f"/api/v1/documents/{DOCUMENT_ID}/revisions",
+            json={
+                "revision_code": "A",
+                "object_storage_key": storage_key,
+                "checksum_sha256": "a" * 64,
+            },
+        )
+    assert response.status_code == 422
+
+
+async def test_document_conflicts_use_the_shared_error_envelope() -> None:
+    documents = FakeDocuments()
+    documents.failure = DocumentConflictError("synthetic revision conflict")
+    client, _, sessions = build_client(documents=documents)
+    async with client:
+        response = await client.get(f"/api/v1/documents/{DOCUMENT_ID}")
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "conflict"
+    assert sessions.sessions[0].rollbacks == 1
+
+
+async def test_document_export_requires_fresh_step_up() -> None:
+    client, _, _ = build_client()
+    async with client:
+        refused = await client.post(
+            f"/api/v1/document-revisions/{REVISION_ID}/export-requests",
+            json={"reason": "Synthetic controlled export"},
+        )
+    assert refused.status_code == 403
+    assert refused.json()["error"]["code"] == "step_up_required"
+
+    client, _, _ = build_client(identity=FakeIdentity(step_up=True))
+    async with client:
+        created = await client.post(
+            f"/api/v1/document-revisions/{REVISION_ID}/export-requests",
+            json={"reason": "Synthetic controlled export"},
+        )
+    assert created.status_code == 201
+    assert created.json()["status"] == "pending"
+
+
+async def test_preview_response_is_non_cacheable_and_sandboxed() -> None:
+    client, _, _ = build_client()
+    async with client:
+        response = await client.get("/api/v1/document-previews/synthetic-preview-token")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.headers["cache-control"] == "no-store, private"
+    assert response.headers["content-security-policy"] == "sandbox"
+    assert response.headers["x-content-type-options"] == "nosniff"
+
+
+async def test_binary_revision_intake_and_approved_export_are_controlled() -> None:
+    client, _, _ = build_client(identity=FakeIdentity(step_up=True))
+    async with client:
+        uploaded = await client.post(
+            f"/api/v1/documents/{DOCUMENT_ID}/revision-content",
+            params={"revision_code": "B", "issue_purpose": "Synthetic coordination"},
+            content=b"%PDF-1.7 synthetic",
+            headers={"Content-Type": "application/pdf"},
+        )
+        downloaded = await client.get(f"/api/v1/document-export-requests/{REVISION_ID}/content")
+    assert uploaded.status_code == 201
+    assert uploaded.json()["revision_code"] == "B"
+    assert downloaded.status_code == 200
+    assert downloaded.headers["cache-control"] == "no-store, private"
+    assert downloaded.headers["content-disposition"].startswith("attachment;")
+    assert downloaded.headers["x-content-type-options"] == "nosniff"

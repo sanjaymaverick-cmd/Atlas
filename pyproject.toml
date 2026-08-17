@@ -14,6 +14,7 @@ dependencies = [
     "alembic>=1.14",
     "webauthn>=2.2",
     "cryptography>=43.0",
+    "pymupdf>=1.24",
     "typer>=0.15",
 ]
 

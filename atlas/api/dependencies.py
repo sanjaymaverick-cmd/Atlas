@@ -11,9 +11,11 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from atlas.api.errors import UnauthenticatedError
+from atlas.modules.documents.contracts import DocumentsContract
 from atlas.modules.identity.contracts import IdentityContract
-from atlas.modules.identity.schemas import SessionContext
+from atlas.modules.identity.schemas import RelyingParty, SessionContext
 from atlas.modules.organization.contracts import OrganizationContract
+from atlas.platform.access_control import DEFAULT_MAX_SESSION_RISK
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,6 +23,8 @@ class ApiServices:
     session_factory: async_sessionmaker[AsyncSession]
     identity: IdentityContract
     organization: OrganizationContract
+    documents: DocumentsContract
+    relying_party: RelyingParty
 
 
 def get_services(request: Request) -> ApiServices:
@@ -53,5 +57,7 @@ async def get_current_session(
         db_session, credentials.credentials
     )
     if context is None:
+        raise UnauthenticatedError
+    if context.risk_score > DEFAULT_MAX_SESSION_RISK:
         raise UnauthenticatedError
     return context

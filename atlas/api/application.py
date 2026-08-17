@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
@@ -12,10 +13,16 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from atlas.api.auth import router as auth_router
 from atlas.api.dependencies import ApiServices
+from atlas.api.documents import router as documents_router
 from atlas.api.errors import error_body, install_error_handlers
 from atlas.api.projects import router as projects_router
+from atlas.modules.documents.contracts import DocumentsContract
+from atlas.modules.documents.service import DocumentsService
+from atlas.modules.documents.storage import DocumentStorage, LocalDocumentStorage
 from atlas.modules.identity.contracts import IdentityContract
+from atlas.modules.identity.schemas import RelyingParty
 from atlas.modules.identity.service import IdentityService
 from atlas.modules.organization.contracts import OrganizationContract
 from atlas.modules.organization.service import OrganizationService
@@ -28,11 +35,19 @@ def create_app(
     session_factory: async_sessionmaker[AsyncSession],
     identity_service: IdentityContract | None = None,
     organization_service: OrganizationContract | None = None,
+    documents_service: DocumentsContract | None = None,
+    document_storage: DocumentStorage | None = None,
+    relying_party: RelyingParty,
     dispose_engine: bool = False,
 ) -> FastAPI:
     identity = identity_service if identity_service is not None else IdentityService()
     organization = (
         organization_service if organization_service is not None else OrganizationService(identity)
+    )
+    documents = (
+        documents_service
+        if documents_service is not None
+        else DocumentsService(identity, document_storage)
     )
 
     @asynccontextmanager
@@ -43,7 +58,11 @@ def create_app(
 
     app = FastAPI(title="Atlas API", version="0.1.0", lifespan=lifespan)
     app.state.services = ApiServices(
-        session_factory=session_factory, identity=identity, organization=organization
+        session_factory=session_factory,
+        identity=identity,
+        organization=organization,
+        documents=documents,
+        relying_party=relying_party,
     )
     install_error_handlers(app)
 
@@ -63,7 +82,9 @@ def create_app(
             )
         return {"status": "ready"}
 
+    app.include_router(auth_router)
     app.include_router(projects_router)
+    app.include_router(documents_router)
     return app
 
 
@@ -74,8 +95,22 @@ def create_default_app() -> FastAPI:
     except KeyError as exc:
         raise RuntimeError("ATLAS_DATABASE_URL is required") from exc
     engine = create_engine(database_url)
+    try:
+        relying_party = RelyingParty(
+            rp_id=os.environ["ATLAS_WEBAUTHN_RP_ID"],
+            rp_name=os.environ.get("ATLAS_WEBAUTHN_RP_NAME", "Atlas"),
+            origin=os.environ["ATLAS_WEBAUTHN_ORIGIN"],
+        )
+    except KeyError as exc:
+        raise RuntimeError("ATLAS_WEBAUTHN_RP_ID and ATLAS_WEBAUTHN_ORIGIN are required") from exc
+    try:
+        document_storage_root = Path(os.environ["ATLAS_DOCUMENT_STORAGE_ROOT"])
+    except KeyError as exc:
+        raise RuntimeError("ATLAS_DOCUMENT_STORAGE_ROOT is required") from exc
     return create_app(
         engine=engine,
         session_factory=create_session_factory(engine),
+        relying_party=relying_party,
+        document_storage=LocalDocumentStorage(document_storage_root),
         dispose_engine=True,
     )

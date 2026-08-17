@@ -8,10 +8,12 @@ they cannot import.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
 
 from atlas.modules.identity import repository as repo
 from atlas.modules.identity.break_glass import (
@@ -24,10 +26,28 @@ from atlas.modules.identity.break_glass import (
 from atlas.modules.identity.break_glass import (
     revoke as revoke_break_glass,
 )
-from atlas.modules.identity.models import BreakGlassCredential, Device
-from atlas.modules.identity.schemas import DeviceSummary, SessionContext, UserSummary
+from atlas.modules.identity.contracts import InvalidCeremonyError, WebAuthnError
+from atlas.modules.identity.models import BreakGlassCredential, Device, Session, WebAuthnChallenge
+from atlas.modules.identity.schemas import (
+    AuthenticationOutcome,
+    CeremonyOptions,
+    DeviceSummary,
+    RelyingParty,
+    SessionContext,
+    UserSummary,
+)
 from atlas.modules.identity.scoping import any_grant_covers
-from atlas.modules.identity.sessions import hash_token, is_expired
+from atlas.modules.identity.sessions import expiry_from, hash_token, is_expired, issue_token
+from atlas.modules.identity.webauthn_adapter import (
+    ClonedAuthenticatorError,
+    authentication_options,
+    credential_id_from_authentication,
+    is_enrollment_usable,
+    registration_options,
+    verify_authentication,
+    verify_registration,
+    verify_sign_counter,
+)
 from atlas.platform.access_control import DeviceTrust
 from atlas.platform.audit.writer import record_event
 
@@ -42,6 +62,9 @@ class UnknownDeviceError(IdentityError):
 
 class NotOwnerError(IdentityError):
     """Raised when a non-owner attempts an owner-only action."""
+
+
+CHALLENGE_TTL = timedelta(minutes=5)
 
 
 class IdentityService:
@@ -144,6 +167,195 @@ class IdentityService:
             for d in devices
         ]
 
+    async def begin_registration(
+        self, session: AsyncSession, *, user_id: UUID, rp: RelyingParty
+    ) -> CeremonyOptions:
+        user = await repo.get_user(session, user_id)
+        if user is None or user.status != "active":
+            raise InvalidCeremonyError("registration user is unavailable")
+        challenge, options = registration_options(
+            rp=rp,
+            user_id=user.id.bytes,
+            user_name=user.email,
+            user_display_name=user.full_name,
+        )
+        row = self._new_challenge(user_id=user.id, kind="registration", challenge=challenge)
+        session.add(row)
+        await session.flush()
+        await record_event(
+            session,
+            actor_user_id=user.id,
+            entity_schema="identity",
+            entity_table="webauthn_challenges",
+            entity_id=row.id,
+            action="issue_registration_challenge",
+            after_state={"ceremony_type": row.ceremony_type, "expires_at": row.expires_at},
+        )
+        return CeremonyOptions(ceremony_id=row.id, public_key=options)
+
+    async def complete_registration(
+        self,
+        session: AsyncSession,
+        *,
+        ceremony_id: UUID,
+        credential: dict[str, Any],
+        device_name: str | None,
+        rp: RelyingParty,
+    ) -> UUID:
+        row = await self._consume_challenge(session, ceremony_id, "registration")
+        if row.user_id is None:
+            raise InvalidCeremonyError("registration challenge has no user")
+        verified = verify_registration(
+            rp=rp,
+            expected_challenge=base64url_to_bytes(row.challenge),
+            credential=credential,
+        )
+        return await enroll_device(
+            session,
+            user_id=row.user_id,
+            device_name=device_name,
+            passkey_credential_id=verified.credential_id,
+            public_key=verified.public_key,
+            sign_counter=verified.sign_count,
+        )
+
+    async def begin_authentication(
+        self, session: AsyncSession, *, rp: RelyingParty
+    ) -> CeremonyOptions:
+        challenge, options = authentication_options(rp=rp)
+        row = self._new_challenge(user_id=None, kind="authentication", challenge=challenge)
+        session.add(row)
+        await session.flush()
+        await record_event(
+            session,
+            actor_user_id=None,
+            entity_schema="identity",
+            entity_table="webauthn_challenges",
+            entity_id=row.id,
+            action="issue_authentication_challenge",
+            after_state={"ceremony_type": row.ceremony_type, "expires_at": row.expires_at},
+        )
+        return CeremonyOptions(ceremony_id=row.id, public_key=options)
+
+    async def complete_authentication(
+        self,
+        session: AsyncSession,
+        *,
+        ceremony_id: UUID,
+        credential: dict[str, Any],
+        rp: RelyingParty,
+    ) -> AuthenticationOutcome:
+        row = await self._consume_challenge(session, ceremony_id, "authentication")
+        credential_id = credential_id_from_authentication(credential)
+        device = await repo.get_device_by_credential_id(session, credential_id)
+        if device is None or not is_enrollment_usable(device.status):
+            raise WebAuthnError("credential is not available for authentication")
+        verified = verify_authentication(
+            rp=rp,
+            expected_challenge=base64url_to_bytes(row.challenge),
+            credential=credential,
+            credential_public_key=device.public_key,
+            current_sign_count=0,
+        )
+        try:
+            new_counter = verify_sign_counter(
+                stored=device.sign_counter, presented=verified.sign_count
+            )
+        except ClonedAuthenticatorError:
+            await self.flag_cloned_device(
+                session,
+                device_id=device.id,
+                stored=device.sign_counter,
+                presented=verified.sign_count,
+            )
+            return AuthenticationOutcome(session_token=None, expires_at=None, clone_detected=True)
+
+        now = datetime.now(UTC)
+        previous_counter = device.sign_counter
+        previous_last_used = device.last_used_at
+        device.sign_counter = new_counter
+        device.last_used_at = now
+        await session.flush()
+        await record_event(
+            session,
+            actor_user_id=device.user_id,
+            entity_schema="identity",
+            entity_table="devices",
+            entity_id=device.id,
+            action="authenticate",
+            before_state={
+                "sign_counter": previous_counter,
+                "last_used_at": previous_last_used,
+            },
+            after_state={"sign_counter": new_counter, "last_used_at": now},
+        )
+        token, token_hash = issue_token()
+        expires_at = expiry_from(now)
+        login_session = Session(
+            id=uuid4(),
+            user_id=device.user_id,
+            device_id=device.id,
+            session_token_hash=token_hash,
+            risk_score=0,
+            step_up_verified=False,
+            step_up_verified_at=None,
+            created_at=now,
+            expires_at=expires_at,
+            revoked_at=None,
+        )
+        session.add(login_session)
+        await session.flush()
+        await record_event(
+            session,
+            actor_user_id=device.user_id,
+            entity_schema="identity",
+            entity_table="sessions",
+            entity_id=login_session.id,
+            action="authenticate",
+            after_state={"device_id": str(device.id), "expires_at": expires_at},
+        )
+        return AuthenticationOutcome(session_token=token, expires_at=expires_at)
+
+    @staticmethod
+    def _new_challenge(*, user_id: UUID | None, kind: str, challenge: bytes) -> WebAuthnChallenge:
+        now = datetime.now(UTC)
+        return WebAuthnChallenge(
+            id=uuid4(),
+            user_id=user_id,
+            ceremony_type=kind,
+            challenge=bytes_to_base64url(challenge),
+            expires_at=now + CHALLENGE_TTL,
+            used_at=None,
+            created_at=now,
+        )
+
+    @staticmethod
+    async def _consume_challenge(
+        session: AsyncSession, challenge_id: UUID, expected_kind: str
+    ) -> WebAuthnChallenge:
+        row = await repo.get_challenge_for_update(session, challenge_id)
+        now = datetime.now(UTC)
+        if (
+            row is None
+            or row.ceremony_type != expected_kind
+            or row.used_at is not None
+            or row.expires_at <= now
+        ):
+            raise InvalidCeremonyError("ceremony is unknown, expired, or already used")
+        row.used_at = now
+        await session.flush()
+        await record_event(
+            session,
+            actor_user_id=row.user_id,
+            entity_schema="identity",
+            entity_table="webauthn_challenges",
+            entity_id=row.id,
+            action="consume_challenge",
+            before_state={"used_at": None},
+            after_state={"used_at": now, "ceremony_type": row.ceremony_type},
+        )
+        return row
+
     # -- device enrollment ------------------------------------------------
 
     async def approve_device(
@@ -229,6 +441,7 @@ class IdentityService:
         if device is None:
             raise UnknownDeviceError(f"device {device_id} does not exist")
 
+        before = {"status": device.status, "sign_counter": device.sign_counter}
         device.status = "revoked"
         await session.flush()
         await record_event(
@@ -238,6 +451,7 @@ class IdentityService:
             entity_table="devices",
             entity_id=device.id,
             action="revoke_suspected_clone",
+            before_state=before,
             after_state={
                 "status": "revoked",
                 "stored_sign_counter": stored,
@@ -394,6 +608,7 @@ async def enroll_device(
     device_name: str | None,
     passkey_credential_id: str,
     public_key: str,
+    sign_counter: int = 0,
 ) -> UUID:
     """Register a device, pending owner approval.
 
@@ -407,7 +622,7 @@ async def enroll_device(
         device_name=device_name,
         passkey_credential_id=passkey_credential_id,
         public_key=public_key,
-        sign_counter=0,
+        sign_counter=sign_counter,
         trust_level=DeviceTrust.STANDARD.value,
         status="pending_approval",
         enrolled_at=now,

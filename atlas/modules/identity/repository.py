@@ -19,6 +19,7 @@ from atlas.modules.identity.models import (
     Session,
     User,
     UserRole,
+    WebAuthnChallenge,
 )
 from atlas.modules.identity.scoping import RoleGrant
 
@@ -95,6 +96,15 @@ async def get_device(session: AsyncSession, device_id: UUID) -> Device | None:
 async def get_device_by_credential_id(session: AsyncSession, credential_id: str) -> Device | None:
     result = await session.execute(
         select(Device).where(Device.passkey_credential_id == credential_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_challenge_for_update(
+    session: AsyncSession, challenge_id: UUID
+) -> WebAuthnChallenge | None:
+    result = await session.execute(
+        select(WebAuthnChallenge).where(WebAuthnChallenge.id == challenge_id).with_for_update()
     )
     return result.scalar_one_or_none()
 

@@ -6,7 +6,8 @@ architecture and `db/schema.sql` for the PostgreSQL schema.
 
 ## Status
 
-**Phase 1 in progress** — foundation layer built and tested.
+**Phase 2 local implementation in progress** — Phase 1 foundation and the
+local document-control workflow are built and tested.
 
 Phase 0.5's spike decisions are recorded in `docs/phase-0.5-decision-memo.md`:
 the event and reporting-store choices adopt the blueprint's stated defaults;
@@ -25,7 +26,8 @@ All seven Phase 1 items from `CLAUDE_CODE_KICKOFF.md`:
 
 1. **Schema applied** to PostgreSQL 16 via an Alembic baseline. Two critical
    audit-chain defects found and fixed — see `docs/schema-findings-phase1.md`
-2. **Passkey device binding** with owner-approved enrollment and WebAuthn
+2. **Passkey device binding** with persistent, one-time WebAuthn registration
+   and authentication ceremonies, owner-approved enrollment, and
    signature-counter clone detection
 3. **Short-lived sessions** (opaque server-revocable tokens) with step-up
    authentication that expires
@@ -39,20 +41,28 @@ All seven Phase 1 items from `CLAUDE_CODE_KICKOFF.md`:
    health/readiness checks, and scoped project operations over the existing
    services
 
+Phase 2 now adds project-scoped document/drawing records, immutable binary
+revisions, append-only local object storage with SHA-256 verification, malware
+scan quarantine state, linear review/approval/issue transitions, session-bound
+watermarked PDF previews, and four-eyes export approval with one-time downloads.
+
 Plus the §15 nine-dimension access check, the secrets/KMS pluggability boundary
 for the undecided §25 item 2, module boundaries enforced by import-linter, and
 a CI pipeline covering lint, types, boundaries, tests, coverage and security.
 
 The test suite includes database-free service and HTTP contract tests plus
-PostgreSQL integration coverage for schema, audit, authentication, and project
-transactions. The current suite collects 207 tests; without
-`ATLAS_TEST_DATABASE_URL`, 171 pass and 36 PostgreSQL-dependent integration
-tests are reported as skipped rather than passed.
+PostgreSQL integration coverage for schema, audit, authentication, projects,
+and document revision transactions. Without `ATLAS_TEST_DATABASE_URL`, the
+PostgreSQL-dependent integration tests are reported as skipped rather than
+passed; CI always runs them against PostgreSQL 16.
 
 ### Next
 
-Phase 1 remaining: the WebAuthn ceremony against a real authenticator and the
-DR/warm-standby infrastructure work (tracked, gated on §25 items 3 and 6).
+Finish Phase 2 production hardening items in
+`docs/production-readiness-todo.md`, then begin Phase 3 locally. Real WebAuthn
+UAT, encrypted production object storage, malware-scanner selection, staging,
+and DR provisioning remain pre-launch gates rather than blockers for local
+development.
 
 ## Repository layout
 
@@ -60,7 +70,7 @@ DR/warm-standby infrastructure work (tracked, gated on §25 items 3 and 6).
 atlas/
   api/            FastAPI factory, dependencies, and thin HTTP adapters
   platform/       cross-cutting: db, secrets, kms, audit chain, access control
-  modules/        identity, organization, audit
+  modules/        identity, organization, documents, audit
   owner_console/  admin API + CLI
 db/schema.sql     canonical PostgreSQL DDL, all domains
 docs/             blueprint, audit report, decision memo, module boundaries
@@ -83,10 +93,15 @@ neither Docker nor sudo.
 
 The production entry point is the application factory
 `atlas.api.application:create_default_app`. It requires an async SQLAlchemy
-database URL in `ATLAS_DATABASE_URL`:
+database URL and the WebAuthn relying-party configuration:
 
 ```bash
 export ATLAS_DATABASE_URL='postgresql+asyncpg://atlas:development-only@localhost/atlas'
+export ATLAS_WEBAUTHN_RP_ID='localhost'
+export ATLAS_WEBAUTHN_RP_NAME='Atlas Local'
+export ATLAS_WEBAUTHN_ORIGIN='http://localhost:8000'
+export ATLAS_DOCUMENT_STORAGE_ROOT="$PWD/.atlas-data/documents"
+alembic upgrade head
 uvicorn atlas.api.application:create_default_app --factory --reload
 ```
 
@@ -101,6 +116,27 @@ opaque session token:
 ```http
 Authorization: Bearer <opaque-session-token>
 ```
+
+WebAuthn registration and authentication are under
+`/api/v1/auth/webauthn`. Registration creates a `pending_approval` device; it
+cannot authenticate until the existing owner-console approval flow activates
+it. Authentication returns an opaque, revocable session token—never a JWT.
+Challenges are database-backed, expire after five minutes, and are consumed on
+the first verification attempt.
+
+Production and staging WebAuthn origins must be exact HTTPS origins, and the RP
+ID must be their registrable domain. `localhost` HTTP is only for local
+development.
+
+Document operations are under `/api/v1/projects/{project_id}/documents` and
+`/api/v1/documents/{document_id}`. Binary revision intake generates the object
+key on the server. Cleared revisions may receive short-lived, session-bound PDF
+preview grants; preview responses are watermarked, metadata-scrubbed,
+non-cacheable, and sandboxed. Original-file exports require a fresh passkey
+step-up, approval by someone other than the requester, and are single-use.
+
+The local filesystem adapter is for synthetic development content only. Review
+every item in `docs/production-readiness-todo.md` before introducing real data.
 
 Run the database-free HTTP tests with:
 
