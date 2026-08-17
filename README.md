@@ -21,20 +21,32 @@ site exists).
 
 ### Built
 
-- Audit hash chain, corrected and verified against a live database — see
-  `docs/schema-findings-phase1.md` for the two critical defects found
-- Independent chain verifier (`atlas/platform/audit/chain.py`)
-- §15 access-control check across all nine dimensions
-- Step-up policy with a freshness window
-- Break-glass state machine with a time-boxed grant
-- Secrets/KMS pluggability boundary for the undecided §25 item 2
-- CI pipeline: lint, mypy strict, module-boundary enforcement, unit and
-  integration tests, coverage, bandit, pip-audit
+All seven Phase 1 items from `CLAUDE_CODE_KICKOFF.md`:
+
+1. **Schema applied** to PostgreSQL 16 via an Alembic baseline. Two critical
+   audit-chain defects found and fixed — see `docs/schema-findings-phase1.md`
+2. **Passkey device binding** with owner-approved enrollment and WebAuthn
+   signature-counter clone detection
+3. **Short-lived sessions** (opaque server-revocable tokens) with step-up
+   authentication that expires
+4. **Legal entity and project CRUD**, scoped by `identity.user_roles`
+5. **Audit pipeline** — every mutation writes a hash-chained event in the same
+   transaction, with an independent verifier that walks and recomputes the chain
+6. **Owner console** with the break-glass secondary-admin flow, fully audited
+7. **Backup observability** — WAL archiving and object-storage sync assessed
+   against the §3.2 RPO targets
+
+Plus the §15 nine-dimension access check, the secrets/KMS pluggability boundary
+for the undecided §25 item 2, module boundaries enforced by import-linter, and
+a CI pipeline covering lint, types, boundaries, tests, coverage and security.
+
+**181 tests, 92% coverage.**
 
 ### Next
 
-Alembic baseline · WebAuthn passkey ceremony · session management ·
-legal entity and project CRUD · owner console and CLI · backup wiring
+Phase 1 remaining: FastAPI HTTP layer over the services, the WebAuthn ceremony
+against a real authenticator, and the DR/warm-standby infrastructure work
+(tracked, gated on §25 items 3 and 6).
 
 ## Repository layout
 

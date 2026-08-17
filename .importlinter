@@ -38,6 +38,12 @@ layers =
 #    particular `models` (ORM mappings onto the tables) and `repository`
 #    (raw queries) are unreachable from outside — that is the concrete
 #    mechanism behind "not against internal tables".
+#
+#    allow_indirect_imports is set on each: what must never happen is a module
+#    reaching into another's internals *directly*. Calling the published
+#    service, which then uses its own repository, is the boundary working as
+#    intended — without this, every legitimate use of a module's public entry
+#    point would be reported as a violation of its privacy.
 # ---------------------------------------------------------------------------
 [importlinter:contract:identity-private]
 name = Identity internals are private to the identity module
@@ -50,6 +56,7 @@ forbidden_modules =
     atlas.modules.identity.models
     atlas.modules.identity.repository
     atlas.modules.identity.webauthn_adapter
+allow_indirect_imports = true
 
 [importlinter:contract:organization-private]
 name = Organization internals are private to the organization module
@@ -61,6 +68,7 @@ source_modules =
 forbidden_modules =
     atlas.modules.organization.models
     atlas.modules.organization.repository
+allow_indirect_imports = true
 
 [importlinter:contract:audit-private]
 name = Audit internals are private to the audit module
@@ -72,6 +80,7 @@ source_modules =
 forbidden_modules =
     atlas.modules.audit.models
     atlas.modules.audit.repository
+allow_indirect_imports = true
 
 
 # ---------------------------------------------------------------------------
