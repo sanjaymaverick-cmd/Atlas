@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import cast
 from uuid import UUID, uuid4
 
-import fitz
+import fitz  # type: ignore[import-untyped]
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -133,7 +133,7 @@ def pdf_bytes() -> bytes:
     document.new_page().insert_text((72, 72), "Synthetic controlled drawing")
     content = document.tobytes()
     document.close()
-    return content
+    return cast(bytes, content)
 
 
 async def test_scan_result_quarantines_or_clears_only_a_draft(

@@ -14,16 +14,22 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from atlas.api.auth import router as auth_router
+from atlas.api.compliance import router as compliance_router
 from atlas.api.dependencies import ApiServices
 from atlas.api.documents import router as documents_router
 from atlas.api.errors import error_body, install_error_handlers
+from atlas.api.land import router as land_router
 from atlas.api.projects import router as projects_router
+from atlas.modules.compliance.contracts import ComplianceContract
+from atlas.modules.compliance.service import ComplianceService
 from atlas.modules.documents.contracts import DocumentsContract
 from atlas.modules.documents.service import DocumentsService
 from atlas.modules.documents.storage import DocumentStorage, LocalDocumentStorage
 from atlas.modules.identity.contracts import IdentityContract
 from atlas.modules.identity.schemas import RelyingParty
 from atlas.modules.identity.service import IdentityService
+from atlas.modules.land.contracts import LandContract
+from atlas.modules.land.service import LandService
 from atlas.modules.organization.contracts import OrganizationContract
 from atlas.modules.organization.service import OrganizationService
 from atlas.platform.db import create_engine, create_session_factory
@@ -36,6 +42,8 @@ def create_app(
     identity_service: IdentityContract | None = None,
     organization_service: OrganizationContract | None = None,
     documents_service: DocumentsContract | None = None,
+    land_service: LandContract | None = None,
+    compliance_service: ComplianceContract | None = None,
     document_storage: DocumentStorage | None = None,
     relying_party: RelyingParty,
     dispose_engine: bool = False,
@@ -48,6 +56,10 @@ def create_app(
         documents_service
         if documents_service is not None
         else DocumentsService(identity, document_storage)
+    )
+    land = land_service if land_service is not None else LandService(identity)
+    compliance = (
+        compliance_service if compliance_service is not None else ComplianceService(identity)
     )
 
     @asynccontextmanager
@@ -62,6 +74,8 @@ def create_app(
         identity=identity,
         organization=organization,
         documents=documents,
+        land=land,
+        compliance=compliance,
         relying_party=relying_party,
     )
     install_error_handlers(app)
@@ -85,6 +99,8 @@ def create_app(
     app.include_router(auth_router)
     app.include_router(projects_router)
     app.include_router(documents_router)
+    app.include_router(land_router)
+    app.include_router(compliance_router)
     return app
 
 

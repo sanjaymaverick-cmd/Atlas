@@ -14,6 +14,10 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from atlas.api import application
 from atlas.api.application import create_app
+from atlas.modules.compliance.schemas import (
+    ComplianceObligationCreate,
+    ComplianceObligationSummary,
+)
 from atlas.modules.documents.contracts import DocumentConflictError
 from atlas.modules.documents.schemas import (
     DocumentCreate,
@@ -30,6 +34,7 @@ from atlas.modules.identity.schemas import (
     RelyingParty,
     SessionContext,
 )
+from atlas.modules.land.schemas import LandParcelCreate, LandParcelSummary
 from atlas.modules.organization.contracts import ConflictError, NotAuthorisedError, NotFoundError
 from atlas.modules.organization.schemas import ProjectCreate, ProjectSummary, ProjectUpdate
 from atlas.platform.access_control import DeviceTrust
@@ -41,6 +46,8 @@ ENTITY_ID = UUID("22222222-2222-2222-2222-222222222222")
 PROJECT_ID = UUID("33333333-3333-3333-3333-333333333333")
 DOCUMENT_ID = UUID("44444444-4444-4444-4444-444444444444")
 REVISION_ID = UUID("55555555-5555-5555-5555-555555555555")
+PARCEL_ID = UUID("66666666-6666-6666-6666-666666666666")
+OBLIGATION_ID = UUID("77777777-7777-7777-7777-777777777777")
 
 
 def project(*, archived: bool = False, version: int = 1) -> ProjectSummary:
@@ -238,6 +245,54 @@ class FakeOrganization:
         self._raise_if_needed()
         self.calls.append(("archive", actor_user_id, project_id))
         return project(archived=True, version=2)
+
+
+class FakeLand:
+    def __init__(self) -> None:
+        self.calls: list[LandParcelCreate] = []
+
+    async def create_parcel(
+        self, session: object, *, actor_user_id: UUID, data: LandParcelCreate
+    ) -> LandParcelSummary:
+        self.calls.append(data)
+        return LandParcelSummary(
+            PARCEL_ID,
+            data.legal_entity_id,
+            data.project_id,
+            data.survey_number,
+            data.area_sqft,
+            data.location,
+            "identified",
+            "active",
+            1,
+            None,
+        )
+
+
+class FakeCompliance:
+    def __init__(self) -> None:
+        self.calls: list[ComplianceObligationCreate] = []
+
+    async def create_obligation(
+        self,
+        session: object,
+        *,
+        actor_user_id: UUID,
+        data: ComplianceObligationCreate,
+    ) -> ComplianceObligationSummary:
+        self.calls.append(data)
+        return ComplianceObligationSummary(
+            OBLIGATION_ID,
+            data.legal_entity_id,
+            data.project_id,
+            data.obligation_type,
+            data.authority,
+            data.due_date,
+            data.amount,
+            "open",
+            1,
+            None,
+        )
 
 
 class FakeDocuments:
@@ -469,6 +524,8 @@ def build_client(
     identity: FakeIdentity | None = None,
     organization: FakeOrganization | None = None,
     documents: FakeDocuments | None = None,
+    land: FakeLand | None = None,
+    compliance: FakeCompliance | None = None,
 ) -> tuple[httpx.AsyncClient, FakeOrganization, FakeSessionFactory]:
     fake_organization = organization or FakeOrganization()
     session_factory = FakeSessionFactory()
@@ -478,6 +535,8 @@ def build_client(
         identity_service=identity or FakeIdentity(),  # type: ignore[arg-type]
         organization_service=fake_organization,
         documents_service=documents or FakeDocuments(),
+        land_service=land or FakeLand(),  # type: ignore[arg-type]
+        compliance_service=compliance or FakeCompliance(),  # type: ignore[arg-type]
         relying_party=RelyingParty(
             rp_id="localhost", rp_name="Atlas Test", origin="http://localhost"
         ),
@@ -488,6 +547,38 @@ def build_client(
         headers={"Authorization": "Bearer synthetic-session-token"},
     )
     return client, fake_organization, session_factory
+
+
+async def test_phase3_routes_delegate_to_published_contracts() -> None:
+    land = FakeLand()
+    compliance = FakeCompliance()
+    client, _, sessions = build_client(land=land, compliance=compliance)
+    async with client:
+        parcel = await client.post(
+            f"/api/v1/legal-entities/{ENTITY_ID}/land-parcels",
+            json={
+                "project_id": str(PROJECT_ID),
+                "survey_number": "SYN-SURVEY-001",
+                "area_sqft": "1200.50",
+                "location": "Synthetic location",
+            },
+        )
+        obligation = await client.post(
+            "/api/v1/compliance-obligations",
+            json={
+                "project_id": str(PROJECT_ID),
+                "obligation_type": "synthetic_filing",
+                "authority": "Synthetic Authority",
+                "amount": "100.00",
+            },
+        )
+    assert parcel.status_code == 201
+    assert parcel.json()["acquisition_status"] == "identified"
+    assert land.calls[0].legal_entity_id == ENTITY_ID
+    assert obligation.status_code == 201
+    assert obligation.json()["status"] == "open"
+    assert compliance.calls[0].project_id == PROJECT_ID
+    assert [session.commits for session in sessions.sessions] == [1, 1]
 
 
 async def test_health_and_readiness_do_not_expose_configuration() -> None:

@@ -74,3 +74,19 @@ off before production data or users are introduced.
 - [ ] AI hosting, zero-retention DPA or self-hosting, prompt-injection controls,
   confidence thresholds, and authority-boundary red-team remain mandatory
   gates before Phase 11.
+
+## Phase 3 — Land, legal, financing, and compliance
+
+- [ ] Approve the due-diligence checklist taxonomy, mandatory categories,
+  waiver authority, and evidence-retention rules with qualified legal counsel.
+- [ ] Review which land, title, lender, RERA, PDC, and statutory records contain
+  personal or regulated financial data; restrict fields, exports, logs, and
+  retention accordingly.
+- [ ] Confirm that lender names and reference numbers are operational metadata
+  only. Bank account numbers, cheque images, credentials, and payment secrets
+  must remain in classified document storage or the accounting system of record.
+- [ ] Approve loan-default, bounced-PDC, overdue-obligation, approval-expiry,
+  and RERA-lapse escalation thresholds and notification recipients.
+- [ ] Review the provisional invariant that each loan has at most one EMI/PDC
+  installment of a given type per due date; revise if business practice permits
+  split instruments.

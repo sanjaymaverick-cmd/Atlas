@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-import fitz
+from typing import cast
+
+import fitz  # type: ignore[import-untyped]
 
 
 class PreviewRenderError(Exception):
@@ -34,7 +36,7 @@ def render_watermarked_pdf(content: bytes, *, watermark_text: str) -> bytes:
                 fill_opacity=0.22,
                 overlay=True,
             )
-        return document.tobytes(garbage=4, deflate=True, clean=True)
+        return cast(bytes, document.tobytes(garbage=4, deflate=True, clean=True))
     except PreviewRenderError:
         raise
     except Exception as exc:

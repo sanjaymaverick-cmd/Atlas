@@ -96,6 +96,23 @@ forbidden_modules =
 allow_indirect_imports = true
 
 
+[importlinter:contract:phase3-private]
+name = Phase 3 internals are private to their modules
+type = forbidden
+source_modules =
+    atlas.modules.identity
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.documents
+    atlas.owner_console
+forbidden_modules =
+    atlas.modules.land.models
+    atlas.modules.land.service
+    atlas.modules.compliance.models
+    atlas.modules.compliance.service
+allow_indirect_imports = true
+
+
 # ---------------------------------------------------------------------------
 # 3. Business modules are independent of one another.
 #
@@ -113,6 +130,8 @@ forbidden_modules =
     atlas.modules.organization
     atlas.modules.audit
     atlas.modules.documents
+    atlas.modules.land
+    atlas.modules.compliance
 
 [importlinter:contract:documents-independent]
 name = Documents depends only on Identity contracts and platform services
@@ -122,3 +141,17 @@ source_modules =
 forbidden_modules =
     atlas.modules.organization
     atlas.modules.audit
+    atlas.modules.land
+    atlas.modules.compliance
+
+[importlinter:contract:phase3-independent]
+name = Phase 3 depends only on Identity contracts and platform services
+type = forbidden
+source_modules =
+    atlas.modules.land
+    atlas.modules.compliance
+forbidden_modules =
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.documents.models
+    atlas.modules.documents.service

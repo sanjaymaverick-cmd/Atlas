@@ -297,7 +297,28 @@ CREATE TABLE land.land_legal_approvals (
   valid_to        DATE,
   status          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','applied','approved','rejected','expired')),
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by      UUID REFERENCES identity.users(id),
+  updated_by      UUID REFERENCES identity.users(id),
+  version         INTEGER NOT NULL DEFAULT 1,
+  archived_at     TIMESTAMPTZ
+);
+
+CREATE TABLE land.due_diligence_items (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  land_parcel_id  UUID NOT NULL REFERENCES land.land_parcels(id),
+  category        TEXT NOT NULL,
+  title           TEXT NOT NULL,
+  result          TEXT NOT NULL DEFAULT 'pending'
+    CHECK (result IN ('pending','clear','issue','waived')),
+  evidence_document_id UUID REFERENCES documents.documents(id),
+  notes           TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by      UUID REFERENCES identity.users(id),
+  updated_by      UUID REFERENCES identity.users(id),
+  version         INTEGER NOT NULL DEFAULT 1,
+  archived_at     TIMESTAMPTZ
 );
 
 -- Loans / EMI / PDCs against land or project financing.
@@ -311,8 +332,35 @@ CREATE TABLE land.loan_obligations (
   emi_due_day     INT,
   status          TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','closed','defaulted')),
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by      UUID REFERENCES identity.users(id),
+  updated_by      UUID REFERENCES identity.users(id),
+  version         INTEGER NOT NULL DEFAULT 1,
+  archived_at     TIMESTAMPTZ
 );
+
+CREATE TABLE land.loan_installments (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  loan_obligation_id UUID NOT NULL REFERENCES land.loan_obligations(id),
+  due_date        DATE NOT NULL,
+  amount          NUMERIC(14,2) NOT NULL CHECK (amount >= 0),
+  instrument_type TEXT NOT NULL DEFAULT 'emi'
+    CHECK (instrument_type IN ('emi','pdc','other')),
+  reference_number TEXT,
+  status          TEXT NOT NULL DEFAULT 'scheduled'
+    CHECK (status IN ('scheduled','paid','bounced','waived','overdue')),
+  paid_at         TIMESTAMPTZ,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by      UUID REFERENCES identity.users(id),
+  updated_by      UUID REFERENCES identity.users(id),
+  version         INTEGER NOT NULL DEFAULT 1,
+  archived_at     TIMESTAMPTZ,
+  UNIQUE (loan_obligation_id, due_date, instrument_type)
+);
+
+CREATE INDEX idx_due_diligence_parcel ON land.due_diligence_items(land_parcel_id);
+CREATE INDEX idx_loan_installments_due ON land.loan_installments(due_date, status);
 
 -- =====================================================================
 -- SCHEMA: compliance   (Blueprint §4)
@@ -327,7 +375,12 @@ CREATE TABLE compliance.rera_registrations (
   valid_to          DATE,
   status            TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','lapsed','revoked')),
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by        UUID REFERENCES identity.users(id),
+  updated_by        UUID REFERENCES identity.users(id),
+  version           INTEGER NOT NULL DEFAULT 1,
+  archived_at       TIMESTAMPTZ,
+  UNIQUE (registration_number)
 );
 
 CREATE TABLE compliance.compliance_obligations (
@@ -340,7 +393,11 @@ CREATE TABLE compliance.compliance_obligations (
   amount          NUMERIC(14,2),
   status          TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','paid','waived','overdue')),
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by      UUID REFERENCES identity.users(id),
+  updated_by      UUID REFERENCES identity.users(id),
+  version         INTEGER NOT NULL DEFAULT 1,
+  archived_at     TIMESTAMPTZ
 );
 
 -- =====================================================================

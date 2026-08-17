@@ -6,8 +6,8 @@ architecture and `db/schema.sql` for the PostgreSQL schema.
 
 ## Status
 
-**Phase 2 local implementation in progress** — Phase 1 foundation and the
-local document-control workflow are built and tested.
+**Phase 3 local implementation** — the Phase 1 foundation, Phase 2 document
+control, and Phase 3 land/compliance workflows are built locally.
 
 Phase 0.5's spike decisions are recorded in `docs/phase-0.5-decision-memo.md`:
 the event and reporting-store choices adopt the blueprint's stated defaults;
@@ -46,6 +46,11 @@ revisions, append-only local object storage with SHA-256 verification, malware
 scan quarantine state, linear review/approval/issue transitions, session-bound
 watermarked PDF previews, and four-eyes export approval with one-time downloads.
 
+Phase 3 adds scoped land parcels, due-diligence findings and evidence links,
+legal approval lifecycles, loan/EMI/PDC obligations, RERA registrations, and
+statutory obligations. Lifecycle mutations are versioned and audited in the
+same transaction; invalid state jumps are rejected as conflicts.
+
 Plus the §15 nine-dimension access check, the secrets/KMS pluggability boundary
 for the undecided §25 item 2, module boundaries enforced by import-linter, and
 a CI pipeline covering lint, types, boundaries, tests, coverage and security.
@@ -58,11 +63,10 @@ passed; CI always runs them against PostgreSQL 16.
 
 ### Next
 
-Finish Phase 2 production hardening items in
-`docs/production-readiness-todo.md`, then begin Phase 3 locally. Real WebAuthn
-UAT, encrypted production object storage, malware-scanner selection, staging,
-and DR provisioning remain pre-launch gates rather than blockers for local
-development.
+Complete Phase 3 verification, then begin Phase 4 locally. Real WebAuthn UAT,
+encrypted production object storage, malware-scanner selection, staging, and DR
+provisioning remain pre-launch gates tracked in
+`docs/production-readiness-todo.md`.
 
 ## Repository layout
 
@@ -70,7 +74,7 @@ development.
 atlas/
   api/            FastAPI factory, dependencies, and thin HTTP adapters
   platform/       cross-cutting: db, secrets, kms, audit chain, access control
-  modules/        identity, organization, documents, audit
+  modules/        identity, organization, documents, land, compliance, audit
   owner_console/  admin API + CLI
 db/schema.sql     canonical PostgreSQL DDL, all domains
 docs/             blueprint, audit report, decision memo, module boundaries
@@ -134,6 +138,12 @@ key on the server. Cleared revisions may receive short-lived, session-bound PDF
 preview grants; preview responses are watermarked, metadata-scrubbed,
 non-cacheable, and sandboxed. Original-file exports require a fresh passkey
 step-up, approval by someone other than the requester, and are single-use.
+
+Phase 3 operations are exposed under `/api/v1/land-parcels`, `/api/v1/loans`,
+`/api/v1/rera-registrations`, and `/api/v1/compliance-obligations`, with creation
+paths rooted in their legal-entity or project scope. Reference numbers are
+operational metadata only; do not place account numbers, cheque images,
+credentials, or payment secrets in these fields.
 
 The local filesystem adapter is for synthetic development content only. Review
 every item in `docs/production-readiness-todo.md` before introducing real data.

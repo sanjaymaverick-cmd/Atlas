@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-import fitz
+from typing import cast
+
+import fitz  # type: ignore[import-untyped]
 import pytest
 
 from atlas.modules.documents.preview import PreviewRenderError, render_watermarked_pdf
@@ -17,7 +19,7 @@ def synthetic_pdf() -> bytes:
     document.set_metadata({"author": "Synthetic Author", "title": "Synthetic Title"})
     content = document.tobytes()
     document.close()
-    return content
+    return cast(bytes, content)
 
 
 def test_watermark_is_embedded_on_every_page_and_metadata_is_scrubbed() -> None:
