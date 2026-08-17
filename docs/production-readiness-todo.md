@@ -245,6 +245,30 @@ off before production data or users are introduced.
   Atlas currently has no posting capability; any write-back requires a separate
   threat model, approval workflow, credential custody design, and owner sign-off.
 
+## Phase 10 — CEO dashboard and advanced analytics
+
+- [ ] Provision and validate the logical-replication reporting replica. Approve
+  publication/subscription scope, replication credentials, network isolation,
+  encryption, lag alerts, failover behavior, RPO/RTO, backup/restore, and a hard
+  guarantee that dashboard credentials cannot write to the primary.
+- [ ] Approve each dashboard metric definition, source-of-truth field, timezone,
+  currency, tax treatment, rounding, freshness indicator, refresh SLA, and how
+  incomplete or stale data is displayed instead of silently treated as current.
+- [ ] Approve cash-horizon assumptions; receivable/payable and margin formulas;
+  contractor score weights; sales-velocity windows; inventory-aging start date;
+  delay, overrun, inspection, collection, compliance, and decision thresholds.
+- [ ] Classify dashboard aggregates for inference and re-identification risk.
+  Restrict legal-entity/project drill-downs and prohibit party/customer identity,
+  tax IDs, bank/payment references, document text, narratives, and raw Tally
+  payloads from materialized views, caches, logs, URLs, and exports.
+- [ ] Approve report formats, watermarking, step-up authentication, export size
+  limits, malware-safe generation, temporary storage encryption, signed-link
+  lifetime, download audit, retention/destruction, and whether scheduled reports
+  may ever be delivered outside the in-app controlled-download flow.
+- [ ] Design the refresh/scheduler worker with idempotency, bounded concurrency,
+  retry/backoff, dead-letter visibility, cancellation, refresh locking, query
+  timeouts, resource limits, and alerts for failed or stale materialized views.
+
 ## Phase 3 — Land, legal, financing, and compliance
 
 - [ ] Approve the due-diligence checklist taxonomy, mandatory categories,
