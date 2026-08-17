@@ -39,6 +39,7 @@ from atlas.modules.identity.schemas import (
 from atlas.modules.land.schemas import LandParcelCreate, LandParcelSummary
 from atlas.modules.organization.contracts import ConflictError, NotAuthorisedError, NotFoundError
 from atlas.modules.organization.schemas import ProjectCreate, ProjectSummary, ProjectUpdate
+from atlas.modules.project_controls.schemas import BimImportCreate, BimImportSummary
 from atlas.platform.access_control import DeviceTrust
 
 pytestmark = pytest.mark.unit
@@ -330,6 +331,19 @@ class FakeConstruction:
         )
 
 
+class FakeProjectControls:
+    def __init__(self) -> None:
+        self.calls: list[BimImportCreate] = []
+
+    async def register_bim_import(
+        self, session: object, *, actor_user_id: UUID, data: BimImportCreate
+    ) -> BimImportSummary:
+        self.calls.append(data)
+        return BimImportSummary(
+            uuid4(), data.project_id, data.source_document_id, "received", None, None, 1
+        )
+
+
 class FakeDocuments:
     def __init__(self) -> None:
         self.failure: Exception | None = None
@@ -563,6 +577,7 @@ def build_client(
     compliance: FakeCompliance | None = None,
     commercial: FakeCommercial | None = None,
     construction: FakeConstruction | None = None,
+    project_controls: FakeProjectControls | None = None,
 ) -> tuple[httpx.AsyncClient, FakeOrganization, FakeSessionFactory]:
     fake_organization = organization or FakeOrganization()
     session_factory = FakeSessionFactory()
@@ -576,6 +591,7 @@ def build_client(
         compliance_service=compliance or FakeCompliance(),  # type: ignore[arg-type]
         commercial_service=commercial or FakeCommercial(),  # type: ignore[arg-type]
         construction_service=construction or FakeConstruction(),  # type: ignore[arg-type]
+        project_controls_service=project_controls or FakeProjectControls(),  # type: ignore[arg-type]
         relying_party=RelyingParty(
             rp_id="localhost", rp_name="Atlas Test", origin="http://localhost"
         ),
@@ -653,6 +669,26 @@ async def test_phase5_site_diary_route_minimises_visitor_data_and_delegates() ->
     assert response.json()["client_record_id"] == str(client_record_id)
     assert construction.calls[0].visitor_count == 2
     assert not hasattr(construction.calls[0], "visitor_names")
+    assert sessions.sessions[0].commits == 1
+
+
+async def test_phase6_bim_route_accepts_document_id_not_storage_reference() -> None:
+    controls = FakeProjectControls()
+    client, _, sessions = build_client(project_controls=controls)
+    source_document_id = uuid4()
+    async with client:
+        accepted = await client.post(
+            f"/api/v1/projects/{PROJECT_ID}/bim-imports",
+            json={"source_document_id": str(source_document_id)},
+        )
+        rejected = await client.post(
+            f"/api/v1/projects/{PROJECT_ID}/bim-imports",
+            json={"source_file_reference": "https://example.invalid/model.ifc"},
+        )
+    assert accepted.status_code == 201
+    assert accepted.json()["source_document_id"] == str(source_document_id)
+    assert controls.calls[0].source_document_id == source_document_id
+    assert rejected.status_code == 422
     assert sessions.sessions[0].commits == 1
 
 

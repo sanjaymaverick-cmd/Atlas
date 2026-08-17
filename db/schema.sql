@@ -494,11 +494,16 @@ CREATE TABLE design.bim_imports (
   id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id             UUID NOT NULL REFERENCES organization.projects(id),
   source_file_reference  TEXT NOT NULL,
+  source_document_id     UUID REFERENCES documents.documents(id),
   import_status          TEXT NOT NULL DEFAULT 'received' CHECK (import_status IN ('received','validating','validated','rejected','imported')),
   validated_at           TIMESTAMPTZ,
   validated_by           UUID REFERENCES identity.users(id),
   created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by             UUID REFERENCES identity.users(id),
+  updated_by             UUID REFERENCES identity.users(id),
+  version                INTEGER NOT NULL DEFAULT 1,
+  archived_at            TIMESTAMPTZ
 );
 
 CREATE TABLE design.bim_objects (
@@ -511,7 +516,10 @@ CREATE TABLE design.bim_objects (
   floor_id        UUID REFERENCES organization.floors(id),
   unit_id         UUID REFERENCES organization.units(id),
   room_reference  TEXT,
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by      UUID REFERENCES identity.users(id),
+  archived_at     TIMESTAMPTZ,
+  UNIQUE (bim_import_id, ifc_guid)
 );
 
 -- =====================================================================
@@ -527,6 +535,12 @@ CREATE TABLE quantities.cost_codes (
   wbs_level        INT NOT NULL DEFAULT 1,
   parent_cost_code_id UUID REFERENCES quantities.cost_codes(id),
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by       UUID REFERENCES identity.users(id),
+  updated_by       UUID REFERENCES identity.users(id),
+  version          INTEGER NOT NULL DEFAULT 1,
+  archived_at      TIMESTAMPTZ,
+  CHECK (wbs_level >= 1),
   UNIQUE (project_id, code)
 );
 
@@ -544,7 +558,15 @@ CREATE TABLE quantities.quantity_items (
   status                 TEXT NOT NULL DEFAULT 'calculated'
     CHECK (status IN ('calculated','submitted','within_tolerance','discrepancy','under_review','approved')),
   created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by             UUID REFERENCES identity.users(id),
+  updated_by             UUID REFERENCES identity.users(id),
+  version                INTEGER NOT NULL DEFAULT 1,
+  archived_at            TIMESTAMPTZ,
+  CHECK (calculated_quantity IS NULL OR calculated_quantity >= 0),
+  CHECK (verified_quantity IS NULL OR verified_quantity >= 0),
+  CHECK (final_approved_quantity IS NULL OR final_approved_quantity >= 0),
+  CHECK (tolerance_pct BETWEEN 0 AND 100)
 );
 
 -- =====================================================================
@@ -610,7 +632,8 @@ CREATE TABLE procurement.purchase_orders (
   archived_at    TIMESTAMPTZ,
   -- Vendor must be Active (see vendor_onboarding.vendor_onboardings) before a PO can be issued;
   -- enforced at application layer per Blueprint §11 Vendor Onboarding Workflow.
-  CONSTRAINT chk_po_amount_nonneg CHECK (total_amount >= 0)
+  CONSTRAINT chk_po_amount_nonneg CHECK (total_amount >= 0),
+  UNIQUE (id, project_id)
 );
 
 CREATE TABLE procurement.purchase_order_lines (
@@ -941,29 +964,56 @@ CREATE TABLE inventory.materials (
   name          TEXT NOT NULL,
   unit_of_measure TEXT NOT NULL,
   category      TEXT,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by    UUID REFERENCES identity.users(id),
+  updated_by    UUID REFERENCES identity.users(id),
+  version       INTEGER NOT NULL DEFAULT 1,
+  archived_at   TIMESTAMPTZ,
+  UNIQUE (name, unit_of_measure)
 );
 
 CREATE TABLE inventory.material_receipts (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id         UUID NOT NULL REFERENCES organization.projects(id),
-  purchase_order_id  UUID REFERENCES procurement.purchase_orders(id),
+  purchase_order_id  UUID,
   material_id        UUID NOT NULL REFERENCES inventory.materials(id),
-  quantity_received  NUMERIC(16,4),
+  quantity_received  NUMERIC(16,4) NOT NULL CHECK (quantity_received > 0),
+  batch_reference    TEXT,
+  certificate_document_id UUID REFERENCES documents.documents(id),
   received_date      DATE NOT NULL,
   status             TEXT NOT NULL DEFAULT 'received' CHECK (status IN ('received','rejected','partial')),
-  created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by         UUID REFERENCES identity.users(id),
+  updated_by         UUID REFERENCES identity.users(id),
+  version            INTEGER NOT NULL DEFAULT 1,
+  archived_at        TIMESTAMPTZ,
+  FOREIGN KEY (purchase_order_id, project_id)
+    REFERENCES procurement.purchase_orders(id, project_id)
 );
 
 CREATE TABLE inventory.material_issuances (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id    UUID NOT NULL REFERENCES organization.projects(id),
   material_id   UUID NOT NULL REFERENCES inventory.materials(id),
-  quantity_issued NUMERIC(16,4),
+  material_receipt_id UUID NOT NULL REFERENCES inventory.material_receipts(id),
+  quantity_issued NUMERIC(16,4) NOT NULL CHECK (quantity_issued > 0),
   issued_to     TEXT,
   issued_date   DATE NOT NULL,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+  evidence_document_id UUID REFERENCES documents.documents(id),
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by    UUID REFERENCES identity.users(id),
+  updated_by    UUID REFERENCES identity.users(id),
+  version       INTEGER NOT NULL DEFAULT 1,
+  archived_at   TIMESTAMPTZ
 );
+
+CREATE INDEX idx_bim_imports_project ON design.bim_imports(project_id);
+CREATE INDEX idx_quantity_items_project_status ON quantities.quantity_items(project_id, status);
+CREATE INDEX idx_material_receipts_project_date ON inventory.material_receipts(project_id, received_date);
+CREATE INDEX idx_material_issuances_receipt ON inventory.material_issuances(material_receipt_id);
 
 -- =====================================================================
 -- SCHEMA: sales   (Blueprint §4.2 — CRM lead funnel / channel-partner commission)

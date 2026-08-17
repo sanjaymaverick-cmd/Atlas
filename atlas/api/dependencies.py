@@ -19,6 +19,7 @@ from atlas.modules.identity.contracts import IdentityContract
 from atlas.modules.identity.schemas import RelyingParty, SessionContext
 from atlas.modules.land.contracts import LandContract
 from atlas.modules.organization.contracts import OrganizationContract
+from atlas.modules.project_controls.contracts import ProjectControlsContract
 from atlas.platform.access_control import DEFAULT_MAX_SESSION_RISK
 
 
@@ -32,6 +33,7 @@ class ApiServices:
     compliance: ComplianceContract
     commercial: CommercialContract
     construction: ConstructionContract
+    project_controls: ProjectControlsContract
     relying_party: RelyingParty
 
 

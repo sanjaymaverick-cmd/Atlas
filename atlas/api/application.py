@@ -21,6 +21,7 @@ from atlas.api.dependencies import ApiServices
 from atlas.api.documents import router as documents_router
 from atlas.api.errors import error_body, install_error_handlers
 from atlas.api.land import router as land_router
+from atlas.api.project_controls import router as project_controls_router
 from atlas.api.projects import router as projects_router
 from atlas.modules.commercial.contracts import CommercialContract
 from atlas.modules.commercial.service import CommercialService
@@ -38,6 +39,8 @@ from atlas.modules.land.contracts import LandContract
 from atlas.modules.land.service import LandService
 from atlas.modules.organization.contracts import OrganizationContract
 from atlas.modules.organization.service import OrganizationService
+from atlas.modules.project_controls.contracts import ProjectControlsContract
+from atlas.modules.project_controls.service import ProjectControlsService
 from atlas.platform.db import create_engine, create_session_factory
 
 
@@ -52,6 +55,7 @@ def create_app(
     compliance_service: ComplianceContract | None = None,
     commercial_service: CommercialContract | None = None,
     construction_service: ConstructionContract | None = None,
+    project_controls_service: ProjectControlsContract | None = None,
     document_storage: DocumentStorage | None = None,
     relying_party: RelyingParty,
     dispose_engine: bool = False,
@@ -75,6 +79,11 @@ def create_app(
     construction = (
         construction_service if construction_service is not None else ConstructionService(identity)
     )
+    project_controls = (
+        project_controls_service
+        if project_controls_service is not None
+        else ProjectControlsService(identity)
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -92,6 +101,7 @@ def create_app(
         compliance=compliance,
         commercial=commercial,
         construction=construction,
+        project_controls=project_controls,
         relying_party=relying_party,
     )
     install_error_handlers(app)
@@ -119,6 +129,7 @@ def create_app(
     app.include_router(compliance_router)
     app.include_router(commercial_router)
     app.include_router(construction_router)
+    app.include_router(project_controls_router)
     return app
 
 

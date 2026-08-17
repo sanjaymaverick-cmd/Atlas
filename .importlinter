@@ -215,3 +215,36 @@ forbidden_modules =
     atlas.modules.land
     atlas.modules.compliance
     atlas.modules.commercial
+
+[importlinter:contract:project-controls-private]
+name = Project controls internals are private to the project controls module
+type = forbidden
+source_modules =
+    atlas.modules.identity
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.documents
+    atlas.modules.land
+    atlas.modules.compliance
+    atlas.modules.commercial
+    atlas.modules.construction
+    atlas.owner_console
+forbidden_modules =
+    atlas.modules.project_controls.models
+    atlas.modules.project_controls.service
+allow_indirect_imports = true
+
+[importlinter:contract:project-controls-independent]
+name = Project controls depend only on Identity contracts and platform services
+type = forbidden
+source_modules =
+    atlas.modules.project_controls
+forbidden_modules =
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.documents.models
+    atlas.modules.documents.service
+    atlas.modules.land
+    atlas.modules.compliance
+    atlas.modules.commercial
+    atlas.modules.construction

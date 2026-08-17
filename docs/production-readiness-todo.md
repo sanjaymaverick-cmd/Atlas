@@ -131,6 +131,38 @@ off before production data or users are introduced.
   policy. The local service currently derives automatic transition dates from
   UTC; do not assume UTC calendar dates match the legally relevant site date.
 
+## Phase 6 — BIM, quantities, WBS, and material traceability
+
+- [ ] Select and security-review the IFC/BIM validation and extraction tooling,
+  sandboxing limits, file-size/time limits, malware scanning, parser patching,
+  and failure quarantine behavior before accepting real model files.
+- [ ] Classify BIM models, object GUIDs, room/unit mappings, quantities, rates,
+  and derived geometry as confidential project intellectual property. Approve
+  access, watermark/export, retention, legal hold, and vendor-processing rules.
+- [ ] Migrate and classify legacy free-form BIM source references into the new
+  restricted Documents foreign key. New writes use only Documents evidence;
+  never accept local paths, credentials, signed URLs, or public object URLs.
+- [ ] Approve CostCode hierarchy governance, code ownership, maximum depth,
+  re-parenting rules, and whether codes are project-specific or reusable master
+  data. The provisional schema prevents duplicate project codes only.
+- [ ] Approve quantity units, conversions, rounding precision, tolerance policy,
+  verifier independence, discrepancy escalation, and final approval authority.
+  Phase 7 owns formal discrepancy/change workflows.
+- [ ] Define material master ownership and duplicate-merging rules. The current
+  `(name, unit_of_measure)` uniqueness is provisional and not a substitute for
+  an approved SKU/catalogue identity strategy.
+- [ ] Classify supplier batch/lot references, test certificates, recipient/site
+  allocation notes, and issuance evidence; set minimization, access, retention,
+  export, and legal-hold rules. Evidence must be restricted Documents records.
+- [ ] Approve stock reservation and concurrency policy. Issuance must lock the
+  source receipt and reject cumulative quantities above the accepted receipt;
+  decide whether rejected/partial receipts, returns, transfers, wastage, and
+  unit conversion require separate immutable ledger event types.
+- [ ] Review the database-enforced same-project invariant between material
+  receipts and purchase orders, including how legacy rows should be remediated
+  before migration. The migration fails closed rather than attaching a receipt
+  to a purchase order in another project.
+
 ## Phase 3 — Land, legal, financing, and compliance
 
 - [ ] Approve the due-diligence checklist taxonomy, mandatory categories,

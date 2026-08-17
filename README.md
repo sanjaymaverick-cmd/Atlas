@@ -163,6 +163,13 @@ a count only; safety narratives and checklist content are excluded from audit
 payloads. PostgreSQL integration tests require `ATLAS_TEST_DATABASE_URL` and are
 reported as skipped—not passed—when it is absent.
 
+Phase 6 operations cover document-backed BIM imports, project CostCode WBS,
+quantity verification/approval, material masters, receipts, and receipt-linked
+issuances under `/api/v1`. BIM callers provide a restricted Documents UUID—not
+a path or URL. Material issuance is serialized against its receipt and rejects
+cumulative quantities above accepted stock. Formal discrepancy/change handling
+remains in Phase 7.
+
 The local filesystem adapter is for synthetic development content only. Review
 every item in `docs/production-readiness-todo.md` before introducing real data.
 
