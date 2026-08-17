@@ -61,3 +61,7 @@ class OrganizationContract(Protocol):
         actor_user_id: UUID,
         project_id: UUID,
     ) -> ProjectSummary: ...
+
+    async def unit_belongs_to_project(
+        self, session: AsyncSession, *, unit_id: UUID, project_id: UUID
+    ) -> bool: ...

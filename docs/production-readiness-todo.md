@@ -190,6 +190,35 @@ off before production data or users are introduced.
   notifications must contain opaque workflow IDs and safe summaries only, with
   no confidential narrative, evidence URL, token, or personal information.
 
+## Phase 8 — Customer booking, collections, registration, possession, and e-sign
+
+- [ ] Resolve the Blueprint §25 CRM build-versus-integrate decision. Customer
+  lifecycle work does not select a CRM vendor or expand the provisional lead
+  table; approve data ownership, synchronization, consent, and deletion rules.
+- [ ] Classify customer/party identity, KYC, contact data, booking documents,
+  payment schedules, collection references, registration instruments,
+  possession evidence, and signed contracts. Approve purpose, consent/notice,
+  residency, retention, correction, export, legal hold, and erasure handling.
+- [ ] Keep PAN/Aadhaar/passport, bank account, cheque image, payment credentials,
+  signatures, signature certificates, and provider tokens out of source, logs,
+  fixtures, audit payloads, and free-form reference fields. Store approved
+  evidence only in restricted Documents records.
+- [ ] Select and review the payment-collection integration, PCI scope, webhook
+  signature verification, replay/idempotency controls, settlement matching,
+  bounce/refund/chargeback workflow, and secret rotation before real payments.
+- [ ] Approve booking authority, unit hold/expiry policy, cancellation/refund
+  rules, joint ownership, nominee handling, transfer/resale, pricing/tax rules,
+  and the provisional invariant of one non-cancelled booking per unit.
+- [ ] Approve payment-plan rounding, installment allocation order, partial and
+  excess collections, waivers, overdue timezone, interest/penalty, receipts,
+  segregation of collection/allocator roles, and immutable correction entries.
+- [ ] Select the e-signature provider and approve signer authentication,
+  consent, certificate validation, callback verification, timestamp authority,
+  evidence retention, revocation, and provider outage/manual fallback policy.
+- [ ] Approve registration and possession prerequisites, government reference
+  handling, snag clearance, customer acceptance, handover evidence, key/access
+  credential transfer, and independent authorization for final handover.
+
 ## Phase 3 — Land, legal, financing, and compliance
 
 - [ ] Approve the due-diligence checklist taxonomy, mandatory categories,

@@ -90,6 +90,9 @@ class CommercialContract(Protocol):
     async def create_contract(
         self, session: AsyncSession, *, actor_user_id: UUID, data: ContractCreate
     ) -> ContractSummary: ...
+    async def get_contract(
+        self, session: AsyncSession, *, actor_user_id: UUID, contract_id: UUID
+    ) -> ContractSummary: ...
     async def add_milestone(
         self,
         session: AsyncSession,

@@ -132,6 +132,7 @@ forbidden_modules =
     atlas.modules.documents
     atlas.modules.land
     atlas.modules.compliance
+    atlas.modules.customer_lifecycle
 
 [importlinter:contract:documents-independent]
 name = Documents depends only on Identity contracts and platform services
@@ -143,6 +144,7 @@ forbidden_modules =
     atlas.modules.audit
     atlas.modules.land
     atlas.modules.compliance
+    atlas.modules.customer_lifecycle
 
 [importlinter:contract:phase3-independent]
 name = Phase 3 depends only on Identity contracts and platform services
@@ -155,6 +157,7 @@ forbidden_modules =
     atlas.modules.audit
     atlas.modules.documents.models
     atlas.modules.documents.service
+    atlas.modules.customer_lifecycle
 
 [importlinter:contract:commercial-private]
 name = Commercial internals are private to the commercial module
@@ -184,6 +187,7 @@ forbidden_modules =
     atlas.modules.documents.service
     atlas.modules.land
     atlas.modules.compliance
+    atlas.modules.customer_lifecycle
 
 [importlinter:contract:construction-private]
 name = Construction internals are private to the construction module
@@ -215,6 +219,7 @@ forbidden_modules =
     atlas.modules.land
     atlas.modules.compliance
     atlas.modules.commercial
+    atlas.modules.customer_lifecycle
 
 [importlinter:contract:project-controls-private]
 name = Project controls internals are private to the project controls module
@@ -248,6 +253,7 @@ forbidden_modules =
     atlas.modules.compliance
     atlas.modules.commercial
     atlas.modules.construction
+    atlas.modules.customer_lifecycle
 
 [importlinter:contract:change-control-private]
 name = Change control internals are private to the change control module
@@ -283,3 +289,43 @@ forbidden_modules =
     atlas.modules.commercial
     atlas.modules.construction
     atlas.modules.project_controls
+    atlas.modules.customer_lifecycle
+
+[importlinter:contract:customer-lifecycle-private]
+name = Customer lifecycle internals are private to the customer lifecycle module
+type = forbidden
+source_modules =
+    atlas.modules.identity
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.documents
+    atlas.modules.land
+    atlas.modules.compliance
+    atlas.modules.commercial
+    atlas.modules.construction
+    atlas.modules.project_controls
+    atlas.modules.change_control
+    atlas.owner_console
+forbidden_modules =
+    atlas.modules.customer_lifecycle.models
+    atlas.modules.customer_lifecycle.service
+allow_indirect_imports = true
+
+[importlinter:contract:customer-lifecycle-independent]
+name = Customer lifecycle uses only published Organization and Commercial contracts
+type = forbidden
+source_modules =
+    atlas.modules.customer_lifecycle
+forbidden_modules =
+    atlas.modules.organization.models
+    atlas.modules.organization.repository
+    atlas.modules.organization.service
+    atlas.modules.commercial.models
+    atlas.modules.commercial.service
+    atlas.modules.documents.models
+    atlas.modules.documents.service
+    atlas.modules.land
+    atlas.modules.compliance
+    atlas.modules.construction
+    atlas.modules.project_controls
+    atlas.modules.change_control

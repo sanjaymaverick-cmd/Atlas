@@ -21,6 +21,7 @@ from atlas.modules.compliance.schemas import (
     ComplianceObligationSummary,
 )
 from atlas.modules.construction.schemas import SiteDiaryCreate, SiteDiarySummary
+from atlas.modules.customer_lifecycle.schemas import BookingCreate, BookingSummary
 from atlas.modules.documents.contracts import DocumentConflictError
 from atlas.modules.documents.schemas import (
     DocumentCreate,
@@ -210,6 +211,11 @@ class FakeOrganization:
         if self.failure is not None:
             raise self.failure
 
+    async def unit_belongs_to_project(
+        self, session: object, *, unit_id: UUID, project_id: UUID
+    ) -> bool:
+        return True
+
     async def get_project(
         self, session: object, *, actor_user_id: UUID, project_id: UUID
     ) -> ProjectSummary:
@@ -355,6 +361,26 @@ class FakeChangeControl:
         self.calls.append(data)
         return ChangeSummary(
             uuid4(), data.project_id, "requested", data.evidence_document_id, None, None, 1
+        )
+
+
+class FakeCustomerLifecycle:
+    def __init__(self) -> None:
+        self.calls: list[BookingCreate] = []
+
+    async def create_booking(
+        self, session: object, *, actor_user_id: UUID, data: BookingCreate
+    ) -> BookingSummary:
+        self.calls.append(data)
+        return BookingSummary(
+            uuid4(),
+            data.project_id,
+            data.customer_id,
+            data.unit_id,
+            data.booking_date,
+            data.booking_document_id,
+            "booked",
+            1,
         )
 
 
@@ -593,6 +619,7 @@ def build_client(
     construction: FakeConstruction | None = None,
     project_controls: FakeProjectControls | None = None,
     change_control: FakeChangeControl | None = None,
+    customer_lifecycle: FakeCustomerLifecycle | None = None,
 ) -> tuple[httpx.AsyncClient, FakeOrganization, FakeSessionFactory]:
     fake_organization = organization or FakeOrganization()
     session_factory = FakeSessionFactory()
@@ -608,6 +635,7 @@ def build_client(
         construction_service=construction or FakeConstruction(),  # type: ignore[arg-type]
         project_controls_service=project_controls or FakeProjectControls(),  # type: ignore[arg-type]
         change_control_service=change_control or FakeChangeControl(),  # type: ignore[arg-type]
+        customer_lifecycle_service=customer_lifecycle or FakeCustomerLifecycle(),  # type: ignore[arg-type]
         relying_party=RelyingParty(
             rp_id="localhost", rp_name="Atlas Test", origin="http://localhost"
         ),
@@ -727,6 +755,35 @@ async def test_phase7_change_route_is_thin_and_rejects_unknown_fields() -> None:
         )
     assert accepted.status_code == 201
     assert changes.calls[0].evidence_document_id == evidence_id
+    assert rejected.status_code == 422
+    assert sessions.sessions[0].commits == 1
+
+
+async def test_phase8_booking_route_accepts_ids_and_rejects_embedded_pii() -> None:
+    lifecycle = FakeCustomerLifecycle()
+    client, _, sessions = build_client(customer_lifecycle=lifecycle)
+    customer_id, unit_id, document_id = uuid4(), uuid4(), uuid4()
+    async with client:
+        accepted = await client.post(
+            f"/api/v1/projects/{PROJECT_ID}/bookings",
+            json={
+                "customer_id": str(customer_id),
+                "unit_id": str(unit_id),
+                "booking_date": "2026-08-17",
+                "booking_document_id": str(document_id),
+            },
+        )
+        rejected = await client.post(
+            f"/api/v1/projects/{PROJECT_ID}/bookings",
+            json={
+                "customer_id": str(customer_id),
+                "unit_id": str(unit_id),
+                "booking_date": "2026-08-17",
+                "bank_account": "SYNTHETIC-DO-NOT-STORE",
+            },
+        )
+    assert accepted.status_code == 201
+    assert lifecycle.calls[0].booking_document_id == document_id
     assert rejected.status_code == 422
     assert sessions.sessions[0].commits == 1
 

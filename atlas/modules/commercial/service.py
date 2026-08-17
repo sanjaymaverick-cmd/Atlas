@@ -781,6 +781,20 @@ class CommercialService:
         )
         return contract_summary(row)
 
+    async def get_contract(
+        self, session: AsyncSession, *, actor_user_id: UUID, contract_id: UUID
+    ) -> ContractSummary:
+        row = await session.get(Contract, contract_id)
+        if row is None or row.archived_at is not None:
+            raise CommercialNotFoundError(f"contract {contract_id} does not exist")
+        await self._require(
+            session,
+            actor_user_id=actor_user_id,
+            permission="contract.read",
+            project_id=row.project_id,
+        )
+        return contract_summary(row)
+
     async def add_milestone(
         self,
         session: AsyncSession,

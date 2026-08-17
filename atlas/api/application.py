@@ -18,6 +18,7 @@ from atlas.api.change_control import router as change_control_router
 from atlas.api.commercial import router as commercial_router
 from atlas.api.compliance import router as compliance_router
 from atlas.api.construction import router as construction_router
+from atlas.api.customer_lifecycle import router as customer_lifecycle_router
 from atlas.api.dependencies import ApiServices
 from atlas.api.documents import router as documents_router
 from atlas.api.errors import error_body, install_error_handlers
@@ -32,6 +33,8 @@ from atlas.modules.compliance.contracts import ComplianceContract
 from atlas.modules.compliance.service import ComplianceService
 from atlas.modules.construction.contracts import ConstructionContract
 from atlas.modules.construction.service import ConstructionService
+from atlas.modules.customer_lifecycle.contracts import CustomerLifecycleContract
+from atlas.modules.customer_lifecycle.service import CustomerLifecycleService
 from atlas.modules.documents.contracts import DocumentsContract
 from atlas.modules.documents.service import DocumentsService
 from atlas.modules.documents.storage import DocumentStorage, LocalDocumentStorage
@@ -60,6 +63,7 @@ def create_app(
     construction_service: ConstructionContract | None = None,
     project_controls_service: ProjectControlsContract | None = None,
     change_control_service: ChangeControlContract | None = None,
+    customer_lifecycle_service: CustomerLifecycleContract | None = None,
     document_storage: DocumentStorage | None = None,
     relying_party: RelyingParty,
     dispose_engine: bool = False,
@@ -93,6 +97,11 @@ def create_app(
         if change_control_service is not None
         else ChangeControlService(identity)
     )
+    customer_lifecycle = (
+        customer_lifecycle_service
+        if customer_lifecycle_service is not None
+        else CustomerLifecycleService(identity, organization, commercial)
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -112,6 +121,7 @@ def create_app(
         construction=construction,
         project_controls=project_controls,
         change_control=change_control,
+        customer_lifecycle=customer_lifecycle,
         relying_party=relying_party,
     )
     install_error_handlers(app)
@@ -141,6 +151,7 @@ def create_app(
     app.include_router(construction_router)
     app.include_router(project_controls_router)
     app.include_router(change_control_router)
+    app.include_router(customer_lifecycle_router)
     return app
 
 

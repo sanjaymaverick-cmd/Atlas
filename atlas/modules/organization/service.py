@@ -23,7 +23,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -78,6 +78,22 @@ def _auditable(project: Project) -> dict[str, Any]:
 class OrganizationService:
     def __init__(self, identity: IdentityContract) -> None:
         self._identity = identity
+
+    async def unit_belongs_to_project(
+        self, session: AsyncSession, *, unit_id: UUID, project_id: UUID
+    ) -> bool:
+        value = await session.scalar(
+            text(
+                """SELECT EXISTS (
+                SELECT 1 FROM organization.units u
+                JOIN organization.floors f ON f.id = u.floor_id
+                JOIN organization.buildings b ON b.id = f.building_id
+                WHERE u.id = :unit_id AND b.project_id = :project_id
+                )"""
+            ),
+            {"unit_id": unit_id, "project_id": project_id},
+        )
+        return bool(value)
 
     # -- authorisation ----------------------------------------------------
 

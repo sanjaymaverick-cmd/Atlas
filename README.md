@@ -176,6 +176,13 @@ Documents evidence, decision attribution, routed-recipient responses, and
 reinspection before NCR closure. Confidential narrative fields are not copied
 into audit payloads or notification infrastructure.
 
+Phase 8 operations cover bookings, payment plans/installments, collections and
+allocation, registration, possession, and executed customer-contract linkage
+under `/api/v1`. The service prevents cross-project unit booking, more than one
+active booking per unit, installment/collection over-allocation, and linkage to
+an unexecuted or wrong-customer contract. APIs accept controlled Documents IDs,
+not embedded PII, bank credentials, signatures, or provider payloads.
+
 The local filesystem adapter is for synthetic development content only. Review
 every item in `docs/production-readiness-todo.md` before introducing real data.
 

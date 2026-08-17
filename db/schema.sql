@@ -1090,7 +1090,11 @@ CREATE TABLE customers.customers (
   id         UUID PRIMARY KEY REFERENCES organization.parties(id),
   kyc_status TEXT NOT NULL DEFAULT 'pending' CHECK (kyc_status IN ('pending','verified','rejected')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by UUID REFERENCES identity.users(id),
+  updated_by UUID REFERENCES identity.users(id),
+  version INTEGER NOT NULL DEFAULT 1,
+  archived_at TIMESTAMPTZ
 );
 
 CREATE TABLE customers.bookings (
@@ -1100,9 +1104,14 @@ CREATE TABLE customers.bookings (
   project_id    UUID NOT NULL REFERENCES organization.projects(id),
   lead_id       UUID REFERENCES sales.leads(id),
   booking_date  DATE NOT NULL,
+  booking_document_id UUID REFERENCES documents.documents(id),
   status        TEXT NOT NULL DEFAULT 'booked' CHECK (status IN ('booked','cancelled','registered','possessed')),
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by    UUID REFERENCES identity.users(id),
+  updated_by    UUID REFERENCES identity.users(id),
+  version       INTEGER NOT NULL DEFAULT 1,
+  archived_at   TIMESTAMPTZ
 );
 
 CREATE TABLE sales.commissions (
@@ -1119,8 +1128,14 @@ CREATE TABLE customers.payment_plans (
   booking_id   UUID NOT NULL REFERENCES customers.bookings(id),
   plan_name    TEXT,
   total_amount NUMERIC(16,2),
-  status       TEXT NOT NULL DEFAULT 'active',
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+  status       TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','completed','cancelled')),
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by   UUID REFERENCES identity.users(id),
+  updated_by   UUID REFERENCES identity.users(id),
+  version      INTEGER NOT NULL DEFAULT 1,
+  archived_at  TIMESTAMPTZ,
+  CHECK (total_amount IS NULL OR total_amount >= 0)
 );
 
 CREATE TABLE customers.payment_plan_installments (
@@ -1129,7 +1144,13 @@ CREATE TABLE customers.payment_plan_installments (
   due_date         DATE,
   amount           NUMERIC(14,2),
   status           TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','collected','overdue','waived')),
-  created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by       UUID REFERENCES identity.users(id),
+  updated_by       UUID REFERENCES identity.users(id),
+  version          INTEGER NOT NULL DEFAULT 1,
+  archived_at      TIMESTAMPTZ,
+  CHECK (amount IS NULL OR amount >= 0)
 );
 
 CREATE TABLE customers.collections (
@@ -1140,20 +1161,66 @@ CREATE TABLE customers.collections (
   received_date  DATE NOT NULL,
   mode           TEXT,   -- cheque, NEFT, PDC, etc.
   reference_number TEXT,
+  evidence_document_id UUID REFERENCES documents.documents(id),
+  received_by    UUID REFERENCES identity.users(id),
+  allocated_at   TIMESTAMPTZ,
   status         TEXT NOT NULL DEFAULT 'received' CHECK (status IN ('received','bounced','allocated')),
-  created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by     UUID REFERENCES identity.users(id),
+  updated_by     UUID REFERENCES identity.users(id),
+  version        INTEGER NOT NULL DEFAULT 1,
+  archived_at    TIMESTAMPTZ,
+  CHECK (amount > 0)
 );
 
 CREATE TABLE customers.possession_records (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   booking_id    UUID NOT NULL REFERENCES customers.bookings(id),
   handover_date DATE,
+  evidence_document_id UUID REFERENCES documents.documents(id),
+  handed_over_by UUID REFERENCES identity.users(id),
   status        TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','snag_review','handed_over')),
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by    UUID REFERENCES identity.users(id),
+  updated_by    UUID REFERENCES identity.users(id),
+  version       INTEGER NOT NULL DEFAULT 1,
+  archived_at   TIMESTAMPTZ,
+  UNIQUE (booking_id)
+);
+
+CREATE TABLE customers.registration_records (
+  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  booking_id           UUID NOT NULL UNIQUE REFERENCES customers.bookings(id),
+  registration_date    DATE,
+  evidence_document_id UUID REFERENCES documents.documents(id),
+  registered_by        UUID REFERENCES identity.users(id),
+  status               TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending','scheduled','registered','cancelled')),
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by           UUID REFERENCES identity.users(id),
+  updated_by           UUID REFERENCES identity.users(id),
+  version              INTEGER NOT NULL DEFAULT 1,
+  archived_at          TIMESTAMPTZ
+);
+
+CREATE TABLE customers.booking_contracts (
+  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  booking_id           UUID NOT NULL UNIQUE REFERENCES customers.bookings(id),
+  contract_id          UUID NOT NULL UNIQUE REFERENCES contracts.contracts(id),
+  executed_document_id UUID NOT NULL REFERENCES documents.documents(id),
+  linked_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  linked_by            UUID REFERENCES identity.users(id),
+  version              INTEGER NOT NULL DEFAULT 1,
+  archived_at          TIMESTAMPTZ
 );
 
 CREATE INDEX idx_bookings_project ON customers.bookings(project_id);
 CREATE INDEX idx_collections_booking ON customers.collections(booking_id);
+CREATE UNIQUE INDEX uq_active_booking_unit ON customers.bookings(unit_id)
+  WHERE status <> 'cancelled' AND archived_at IS NULL;
 
 -- =====================================================================
 -- SCHEMA: finance   (Blueprint §16 Tally Reconciliation)
