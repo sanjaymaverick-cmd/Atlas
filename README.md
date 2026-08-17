@@ -190,6 +190,13 @@ amend vouchers. Source exports stay in restricted Documents records; APIs and
 audit events retain only controlled document IDs, SHA-256 provenance, normalized
 facts, and redacted indicators for ledger, voucher, and resolution narratives.
 
+Phase 10 operations expose project/legal-entity CEO dashboards and queued,
+audited PDF/XLSX report requests under `/api/v1`. Production startup requires a
+distinct `ATLAS_REPORTING_DATABASE_URL`; aggregate reads use that read-replica
+session and never reuse the transactional session. Responses contain aggregate
+metrics and opaque IDs only. Report generation remains queued for a controlled
+worker and never sends or publishes an export from the HTTP request.
+
 The local filesystem adapter is for synthetic development content only. Review
 every item in `docs/production-readiness-todo.md` before introducing real data.
 
@@ -197,6 +204,13 @@ Run the database-free HTTP tests with:
 
 ```bash
 .venv/bin/python -m pytest atlas/api/tests
+```
+
+Run locally with separate transactional and reporting PostgreSQL databases:
+
+```bash
+export ATLAS_DATABASE_URL='postgresql+asyncpg://localhost/atlas'
+export ATLAS_REPORTING_DATABASE_URL='postgresql+asyncpg://localhost/atlas_reporting'
 ```
 
 ## Confidentiality

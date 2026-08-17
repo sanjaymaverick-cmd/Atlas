@@ -26,6 +26,7 @@ from atlas.api.finance import router as finance_router
 from atlas.api.land import router as land_router
 from atlas.api.project_controls import router as project_controls_router
 from atlas.api.projects import router as projects_router
+from atlas.api.reporting import router as reporting_router
 from atlas.modules.change_control.contracts import ChangeControlContract
 from atlas.modules.change_control.service import ChangeControlService
 from atlas.modules.commercial.contracts import CommercialContract
@@ -50,6 +51,8 @@ from atlas.modules.organization.contracts import OrganizationContract
 from atlas.modules.organization.service import OrganizationService
 from atlas.modules.project_controls.contracts import ProjectControlsContract
 from atlas.modules.project_controls.service import ProjectControlsService
+from atlas.modules.reporting.contracts import ReportingContract
+from atlas.modules.reporting.service import ReportingService
 from atlas.platform.db import create_engine, create_session_factory
 
 
@@ -57,6 +60,8 @@ def create_app(
     *,
     engine: AsyncEngine,
     session_factory: async_sessionmaker[AsyncSession],
+    reporting_engine: AsyncEngine,
+    reporting_session_factory: async_sessionmaker[AsyncSession],
     identity_service: IdentityContract | None = None,
     organization_service: OrganizationContract | None = None,
     documents_service: DocumentsContract | None = None,
@@ -68,6 +73,7 @@ def create_app(
     change_control_service: ChangeControlContract | None = None,
     customer_lifecycle_service: CustomerLifecycleContract | None = None,
     finance_service: FinanceContract | None = None,
+    reporting_service: ReportingContract | None = None,
     document_storage: DocumentStorage | None = None,
     relying_party: RelyingParty,
     dispose_engine: bool = False,
@@ -107,16 +113,19 @@ def create_app(
         else CustomerLifecycleService(identity, organization, commercial)
     )
     finance = finance_service if finance_service is not None else FinanceService(identity)
+    reporting = reporting_service if reporting_service is not None else ReportingService(identity)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
         if dispose_engine:
             await engine.dispose()
+            await reporting_engine.dispose()
 
     app = FastAPI(title="Atlas API", version="0.1.0", lifespan=lifespan)
     app.state.services = ApiServices(
         session_factory=session_factory,
+        reporting_session_factory=reporting_session_factory,
         identity=identity,
         organization=organization,
         documents=documents,
@@ -128,6 +137,7 @@ def create_app(
         change_control=change_control,
         customer_lifecycle=customer_lifecycle,
         finance=finance,
+        reporting=reporting,
         relying_party=relying_party,
     )
     install_error_handlers(app)
@@ -141,6 +151,8 @@ def create_app(
         try:
             async with engine.connect() as connection:
                 await connection.execute(text("SELECT 1"))
+            async with reporting_engine.connect() as reporting_connection:
+                await reporting_connection.execute(text("SELECT 1"))
         except SQLAlchemyError:
             return JSONResponse(
                 status_code=503,
@@ -159,6 +171,7 @@ def create_app(
     app.include_router(change_control_router)
     app.include_router(customer_lifecycle_router)
     app.include_router(finance_router)
+    app.include_router(reporting_router)
     return app
 
 
@@ -168,7 +181,12 @@ def create_default_app() -> FastAPI:
         database_url = os.environ["ATLAS_DATABASE_URL"]
     except KeyError as exc:
         raise RuntimeError("ATLAS_DATABASE_URL is required") from exc
-    engine = create_engine(database_url)
+    try:
+        reporting_database_url = os.environ["ATLAS_REPORTING_DATABASE_URL"]
+    except KeyError as exc:
+        raise RuntimeError("ATLAS_REPORTING_DATABASE_URL is required") from exc
+    if reporting_database_url == database_url:
+        raise RuntimeError("ATLAS_REPORTING_DATABASE_URL must identify a separate database")
     try:
         relying_party = RelyingParty(
             rp_id=os.environ["ATLAS_WEBAUTHN_RP_ID"],
@@ -181,9 +199,13 @@ def create_default_app() -> FastAPI:
         document_storage_root = Path(os.environ["ATLAS_DOCUMENT_STORAGE_ROOT"])
     except KeyError as exc:
         raise RuntimeError("ATLAS_DOCUMENT_STORAGE_ROOT is required") from exc
+    engine = create_engine(database_url)
+    reporting_engine = create_engine(reporting_database_url)
     return create_app(
         engine=engine,
         session_factory=create_session_factory(engine),
+        reporting_engine=reporting_engine,
+        reporting_session_factory=create_session_factory(reporting_engine),
         relying_party=relying_party,
         document_storage=LocalDocumentStorage(document_storage_root),
         dispose_engine=True,

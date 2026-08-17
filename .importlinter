@@ -367,3 +367,43 @@ forbidden_modules =
     atlas.modules.project_controls
     atlas.modules.change_control
     atlas.modules.customer_lifecycle
+
+[importlinter:contract:reporting-private]
+name = Reporting internals are private to the reporting module
+type = forbidden
+source_modules =
+    atlas.modules.identity
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.documents
+    atlas.modules.land
+    atlas.modules.compliance
+    atlas.modules.commercial
+    atlas.modules.construction
+    atlas.modules.project_controls
+    atlas.modules.change_control
+    atlas.modules.customer_lifecycle
+    atlas.modules.finance
+    atlas.owner_console
+forbidden_modules =
+    atlas.modules.reporting.models
+    atlas.modules.reporting.service
+allow_indirect_imports = true
+
+[importlinter:contract:reporting-independent]
+name = Reporting depends only on Identity contracts and platform services
+type = forbidden
+source_modules =
+    atlas.modules.reporting
+forbidden_modules =
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.documents
+    atlas.modules.land
+    atlas.modules.compliance
+    atlas.modules.commercial
+    atlas.modules.construction
+    atlas.modules.project_controls
+    atlas.modules.change_control
+    atlas.modules.customer_lifecycle
+    atlas.modules.finance

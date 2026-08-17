@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextlib import AbstractAsyncContextManager
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -43,6 +44,7 @@ from atlas.modules.land.schemas import LandParcelCreate, LandParcelSummary
 from atlas.modules.organization.contracts import ConflictError, NotAuthorisedError, NotFoundError
 from atlas.modules.organization.schemas import ProjectCreate, ProjectSummary, ProjectUpdate
 from atlas.modules.project_controls.schemas import BimImportCreate, BimImportSummary
+from atlas.modules.reporting.schemas import ProjectDashboard
 from atlas.platform.access_control import DeviceTrust
 
 pytestmark = pytest.mark.unit
@@ -406,6 +408,42 @@ class FakeFinance:
         )
 
 
+class FakeReporting:
+    def __init__(self) -> None:
+        self.sessions: list[tuple[object, object]] = []
+
+    async def get_project_dashboard(
+        self,
+        primary: object,
+        reporting: object,
+        *,
+        actor_user_id: UUID,
+        project_id: UUID,
+    ) -> ProjectDashboard:
+        self.sessions.append((primary, reporting))
+        return ProjectDashboard(
+            project_id=project_id,
+            legal_entity_id=ENTITY_ID,
+            planned_amount=Decimal("1"),
+            committed_amount=Decimal("1"),
+            actual_amount=Decimal("1"),
+            approved_po_amount=Decimal("1"),
+            released_payment_amount=Decimal("1"),
+            allocated_collection_amount=Decimal("1"),
+            outstanding_receivable_amount=Decimal("1"),
+            unallocated_collection_count=1,
+            overdue_installment_count=1,
+            delayed_activity_count=1,
+            failed_inspection_count=1,
+            open_compliance_count=1,
+            open_reconciliation_count=1,
+            total_unit_count=1,
+            available_unit_count=1,
+            committed_unit_count=1,
+            refreshed_at=datetime.now(UTC),
+        )
+
+
 class FakeDocuments:
     def __init__(self) -> None:
         self.failure: Exception | None = None
@@ -643,12 +681,16 @@ def build_client(
     change_control: FakeChangeControl | None = None,
     customer_lifecycle: FakeCustomerLifecycle | None = None,
     finance: FakeFinance | None = None,
+    reporting: FakeReporting | None = None,
 ) -> tuple[httpx.AsyncClient, FakeOrganization, FakeSessionFactory]:
     fake_organization = organization or FakeOrganization()
     session_factory = FakeSessionFactory()
+    reporting_session_factory = FakeSessionFactory()
     app = create_app(
         engine=engine or FakeEngine(),  # type: ignore[arg-type]
         session_factory=session_factory,  # type: ignore[arg-type]
+        reporting_engine=FakeEngine(),  # type: ignore[arg-type]
+        reporting_session_factory=reporting_session_factory,  # type: ignore[arg-type]
         identity_service=identity or FakeIdentity(),  # type: ignore[arg-type]
         organization_service=fake_organization,
         documents_service=documents or FakeDocuments(),
@@ -660,6 +702,7 @@ def build_client(
         change_control_service=change_control or FakeChangeControl(),  # type: ignore[arg-type]
         customer_lifecycle_service=customer_lifecycle or FakeCustomerLifecycle(),  # type: ignore[arg-type]
         finance_service=finance or FakeFinance(),  # type: ignore[arg-type]
+        reporting_service=reporting or FakeReporting(),  # type: ignore[arg-type]
         relying_party=RelyingParty(
             rp_id="localhost", rp_name="Atlas Test", origin="http://localhost"
         ),
@@ -835,6 +878,17 @@ async def test_phase9_tally_import_route_accepts_controlled_evidence_only() -> N
     assert sessions.sessions[0].commits == 1
 
 
+async def test_phase10_dashboard_uses_a_distinct_read_only_reporting_session() -> None:
+    reporting = FakeReporting()
+    client, _, sessions = build_client(reporting=reporting)
+    async with client:
+        response = await client.get(f"/api/v1/projects/{PROJECT_ID}/dashboard")
+    assert response.status_code == 200
+    primary, replica = reporting.sessions[0]
+    assert primary is not replica
+    assert sessions.sessions[0].commits == 1
+
+
 async def test_health_and_readiness_do_not_expose_configuration() -> None:
     client, _, _ = build_client()
     async with client:
@@ -859,6 +913,8 @@ async def test_factory_can_dispose_an_owned_engine() -> None:
     app = create_app(
         engine=engine,  # type: ignore[arg-type]
         session_factory=FakeSessionFactory(),  # type: ignore[arg-type]
+        reporting_engine=FakeEngine(),  # type: ignore[arg-type]
+        reporting_session_factory=FakeSessionFactory(),  # type: ignore[arg-type]
         identity_service=FakeIdentity(),  # type: ignore[arg-type]
         organization_service=FakeOrganization(),
         relying_party=RelyingParty(
@@ -877,6 +933,15 @@ def test_default_factory_requires_a_database_url(monkeypatch: pytest.MonkeyPatch
         application.create_default_app()
 
 
+def test_default_factory_requires_a_distinct_reporting_database(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ATLAS_DATABASE_URL", "postgresql+asyncpg://localhost/atlas")
+    monkeypatch.setenv("ATLAS_REPORTING_DATABASE_URL", "postgresql+asyncpg://localhost/atlas")
+    with pytest.raises(RuntimeError, match="separate database"):
+        application.create_default_app()
+
+
 def test_default_factory_wires_the_environment_database_url(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -890,6 +955,9 @@ def test_default_factory_wires_the_environment_database_url(
         return engine
 
     monkeypatch.setenv("ATLAS_DATABASE_URL", "postgresql+asyncpg://localhost/atlas")
+    monkeypatch.setenv(
+        "ATLAS_REPORTING_DATABASE_URL", "postgresql+asyncpg://localhost/atlas_reporting"
+    )
     monkeypatch.setenv("ATLAS_WEBAUTHN_RP_ID", "localhost")
     monkeypatch.setenv("ATLAS_WEBAUTHN_ORIGIN", "http://localhost")
     monkeypatch.setenv("ATLAS_DOCUMENT_STORAGE_ROOT", str(tmp_path / "documents"))
@@ -897,7 +965,10 @@ def test_default_factory_wires_the_environment_database_url(
     monkeypatch.setattr(application, "create_session_factory", lambda value: factory)
     app = application.create_default_app()
     assert app.title == "Atlas API"
-    assert seen == ["postgresql+asyncpg://localhost/atlas"]
+    assert seen == [
+        "postgresql+asyncpg://localhost/atlas",
+        "postgresql+asyncpg://localhost/atlas_reporting",
+    ]
 
 
 @pytest.mark.parametrize("header", [None, "Basic credentials"])

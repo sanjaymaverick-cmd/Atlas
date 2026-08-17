@@ -23,12 +23,14 @@ from atlas.modules.identity.schemas import RelyingParty, SessionContext
 from atlas.modules.land.contracts import LandContract
 from atlas.modules.organization.contracts import OrganizationContract
 from atlas.modules.project_controls.contracts import ProjectControlsContract
+from atlas.modules.reporting.contracts import ReportingContract
 from atlas.platform.access_control import DEFAULT_MAX_SESSION_RISK
 
 
 @dataclass(frozen=True, slots=True)
 class ApiServices:
     session_factory: async_sessionmaker[AsyncSession]
+    reporting_session_factory: async_sessionmaker[AsyncSession]
     identity: IdentityContract
     organization: OrganizationContract
     documents: DocumentsContract
@@ -40,6 +42,7 @@ class ApiServices:
     change_control: ChangeControlContract
     customer_lifecycle: CustomerLifecycleContract
     finance: FinanceContract
+    reporting: ReportingContract
     relying_party: RelyingParty
 
 
@@ -57,6 +60,13 @@ async def get_session(
         except Exception:
             await session.rollback()
             raise
+
+
+async def get_reporting_session(
+    services: Annotated[ApiServices, Depends(get_services)],
+) -> AsyncIterator[AsyncSession]:
+    async with services.reporting_session_factory() as session:
+        yield session
 
 
 bearer = HTTPBearer(auto_error=False)

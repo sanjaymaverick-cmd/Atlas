@@ -54,6 +54,11 @@ from atlas.modules.project_controls.contracts import (
     ProjectControlsNotAuthorisedError,
     ProjectControlsNotFoundError,
 )
+from atlas.modules.reporting.contracts import (
+    ReportingConflictError,
+    ReportingNotAuthorisedError,
+    ReportingNotFoundError,
+)
 from atlas.platform.step_up import StepUpRequiredError
 
 
@@ -87,6 +92,7 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(ChangeControlNotAuthorisedError)
     @app.exception_handler(CustomerLifecycleNotAuthorisedError)
     @app.exception_handler(FinanceNotAuthorisedError)
+    @app.exception_handler(ReportingNotAuthorisedError)
     async def forbidden_handler(request: Request, exc: Exception) -> JSONResponse:
         return JSONResponse(
             status_code=403,
@@ -103,6 +109,7 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(ChangeControlNotFoundError)
     @app.exception_handler(CustomerLifecycleNotFoundError)
     @app.exception_handler(FinanceNotFoundError)
+    @app.exception_handler(ReportingNotFoundError)
     async def not_found_handler(request: Request, exc: Exception) -> JSONResponse:
         return JSONResponse(status_code=404, content=error_body("not_found", str(exc)))
 
@@ -116,6 +123,7 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(ChangeControlConflictError)
     @app.exception_handler(CustomerLifecycleConflictError)
     @app.exception_handler(FinanceConflictError)
+    @app.exception_handler(ReportingConflictError)
     async def conflict_handler(request: Request, exc: Exception) -> JSONResponse:
         return JSONResponse(status_code=409, content=error_body("conflict", str(exc)))
 
