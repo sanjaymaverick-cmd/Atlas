@@ -63,17 +63,38 @@ instance. None was introduced by Phase 11; all predate it.
   any future change to the file needs its own recorded exception or a new
   Alembic revision.
 
-- [ ] STILL OPEN — how the freeze rule is enforced. Ratifying the exception
-  above does not answer this, and the rule has already been breached once
-  without anyone noticing: commit `4e4c85d` added
-  `identity.webauthn_challenges` to a file that `0001_baseline` had declared
-  frozen, which is the direct cause of the broken migration chain below.
-  A prose declaration in a docstring is not an enforcement mechanism. Options
-  worth weighing: a CI check that fails if `db/schema.sql` changes without an
-  accompanying recorded exception; a checksum of the file asserted by
-  `0001_baseline`; or dropping the freeze language and treating the file as
-  genuinely canonical-and-editable, with the migration chain rebuilt from it.
-  Decide deliberately rather than by default.
+- [x] DECIDED 2026-08-18 by the repository owner — the freeze rule is
+  **withdrawn and replaced by a checkable invariant.** The rule had already
+  been breached far more widely than the single `4e4c85d` case recorded here:
+  every phase from 2 onward edited `db/schema.sql` while its Alembic revision
+  claimed to add the same objects, which is why the file ended up holding the
+  complete 11-phase schema and why the migration chain could not provision a
+  database at all. A prose declaration in a docstring was not an enforcement
+  mechanism, and enforcing it retroactively would have meant unwinding eleven
+  phases of accumulated practice.
+
+  What replaces it: `db/schema.sql` is no longer frozen. It remains the
+  readable canonical description (Blueprint §6), and every schema change must
+  now land in **both** places — real DDL in a new Alembic revision, and the
+  matching edit to the file. `tests/integration/test_migration_schema_
+  equivalence.py` provisions two databases from empty, one through
+  `alembic upgrade head` and one from `db/schema.sql`, and fails if the
+  resulting schemas differ. CI runs it by name, alongside the audit
+  hash-chain test, so a skip cannot be mistaken for a pass.
+
+  Verified in both directions before adoption: it passes today (the two paths
+  agree across all 2,515 dumped schema lines) and it actually catches drift
+  (a table injected into `0012` failed the check and was named in the diff).
+  The freeze declaration in `0001_baseline`'s docstring has been rewritten to
+  match. The `b990bdc` ratification above is now historical: with no freeze,
+  the file no longer needs per-edit exceptions.
+
+  Consequence to keep in view: revisions `0002`-`0012` are no-ops because the
+  baseline already creates everything. That is a one-time artefact of the old
+  rule's failure. The first genuine post-go-live schema change must carry real
+  DDL, because `db/schema.sql` cannot be applied to a database that holds
+  data — the equivalence test enforces that the DDL exists, but only a human
+  can judge that it is the *right* incremental change.
 - [ ] RE-VERIFY EARLIER PHASES: because integration tests had never executed,
   Phases 1-10 were each signed off without their database-backed behaviour ever
   being exercised — audit hash-chain, append-only triggers, break-glass,

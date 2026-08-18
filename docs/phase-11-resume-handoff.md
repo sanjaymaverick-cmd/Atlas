@@ -396,10 +396,20 @@ phases were declared complete.
    dependency pinned to `>=1.28.2,<1.29`. See defect B. Residual, not
    blocking: PyMuPDF calls are still effectively untyped; real coverage needs
    a stub package, which pairs with Phase 2 renderer sandboxing.
-3. **Freeze enforcement for `db/schema.sql`** is still open. The exception in
-   `b990bdc` is ratified, but the rule has no mechanism behind it and has
-   already been breached at least twice unnoticed (`webauthn_challenges` and
-   every later phase's additions) — which is what caused item 1.
+3. ~~Freeze enforcement for `db/schema.sql`~~ — **closed 2026-08-18.** The
+   freeze was not enforced and never actually held: every phase from 2 onward
+   edited the file while its migration claimed the same objects, which is what
+   caused item 1. Rather than enforce a rule that had already failed, the
+   owner chose to replace it with a checkable invariant. `db/schema.sql` is no
+   longer frozen; instead every schema change must land in both the migration
+   and the file, and
+   `tests/integration/test_migration_schema_equivalence.py` provisions two
+   databases from empty — one via `alembic upgrade head`, one via
+   `db/schema.sql` — and fails if they differ. CI runs it by name. Verified
+   both ways: it passes today (the two paths agree on all 2,515 dumped lines)
+   and it genuinely catches drift (injecting a table into `0012` failed the
+   build, naming the offending table). The declaration in `0001_baseline`'s
+   docstring has been rewritten accordingly.
 4. **Re-record the Phase 1-10 sign-offs** on the basis of the now-passing
    integration coverage.
 5. **The Blueprint §25 AI hosting decision** — owner-gated, and the gate on

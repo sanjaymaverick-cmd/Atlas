@@ -62,13 +62,11 @@ jobs:
           enable-cache: true
       - run: uv venv --python 3.12
       - run: uv pip install -e ".[dev]"
-      # Provisioning a database from empty is the documented deployment path;
-      # nothing else in this job exercises it, since the fixture below applies
-      # db/schema.sql directly rather than through the migration chain.
-      - name: Alembic upgrade head (empty database)
-        env:
-          ATLAS_DATABASE_URL: postgresql+asyncpg://atlas:atlas@localhost:5432/atlas_test
-        run: uv run alembic upgrade head
+      # The schema-equivalence test shells out to pg_dump, which refuses to run
+      # against a server newer than itself. Match the pinned server major so the
+      # check cannot fail for a client-version reason.
+      - name: PostgreSQL 16 client tools
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client-16
       - name: Unit tests
         run: uv run pytest -m unit
       - name: Integration tests
@@ -78,6 +76,12 @@ jobs:
       # failure, not a silent pass — see tests/integration/.
       - name: Audit hash-chain integrity
         run: uv run pytest tests/integration/test_audit_hash_chain_integrity.py -v
+      # Likewise called out by name. This provisions two databases from empty —
+      # one via `alembic upgrade head`, one via db/schema.sql — and fails if
+      # they differ, so the migration chain and the canonical DDL cannot drift
+      # apart. It also covers the from-empty provisioning path itself.
+      - name: Migration and schema equivalence
+        run: uv run pytest tests/integration/test_migration_schema_equivalence.py -v
       - name: Coverage
         run: uv run pytest --cov=atlas --cov-report=term-missing --cov-fail-under=80
 

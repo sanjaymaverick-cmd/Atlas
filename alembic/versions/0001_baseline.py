@@ -11,21 +11,32 @@ restating its DDL in Python: the schema's behaviour lives in PL/pgSQL triggers
 block) that would be lossy to express through Alembic operations, and a
 transcription is a second source of truth waiting to drift.
 
-**From this revision onward, db/schema.sql is frozen.** Schema changes are new
-Alembic revisions. The file stays in the repository as the readable, annotated
-description of the whole data model — Blueprint §6 — and remains what a fresh
-Phase-1 database is built from, but it is no longer edited in place.
+**The freeze rule this docstring used to declare has been replaced (2026-08-18);
+see below.** It said: from this revision onward db/schema.sql is frozen, and
+schema changes are new Alembic revisions. It was never followed. Every phase
+from 2 onward edited the file anyway while its migration claimed to add the
+same objects, which is what eventually left `alembic upgrade head` unable to
+provision a database at all. A rule with no enforcement recorded three
+ratified-sounding exceptions and zero actual compliance.
 
-One ratified exception exists, recorded here because this docstring is where the
-freeze is declared and a reader who sees only the rule would be misled. On
-2026-08-18 the owner approved commit b990bdc, which reordered db/schema.sql so
-the documents section precedes land. Grounds: as committed the file referenced
-documents.documents before that schema existed, so it could not be applied to an
-empty database and this migration could not run at all. The change is a pure
-relocation — sorted contents identical before and after — so no statement
-changed and no provisioned database diverges. The exception covers that
-reordering only; the freeze otherwise stands. See
-docs/production-readiness-todo.md, where enforcement of the rule is still open.
+**The rule now is an invariant, not a promise.** db/schema.sql stays the
+readable, annotated description of the whole data model (Blueprint §6) and this
+revision still applies it. Every future schema change must land in *both*
+places: real DDL in a new Alembic revision, and the matching edit to
+db/schema.sql. Nothing is frozen, because freezing is what failed.
+
+What keeps the two honest is tests/integration/test_migration_schema_equivalence
+.py, which provisions two databases from empty — one through the migration
+chain, one from db/schema.sql — and fails if the resulting schemas differ. CI
+runs it by name. Drift is now a red build rather than something discovered
+years later by an operator who cannot deploy.
+
+Revisions 0002-0012 are deliberate no-ops: db/schema.sql already carried the
+full end-state schema for all 11 phases, so this baseline creates everything
+and those revisions have nothing left to do. That is a one-time consequence of
+the old rule's failure, not a pattern to copy — a genuine schema change from
+here on needs genuine DDL in its revision, and the equivalence test will fail
+if it is missing.
 
 Downgrade drops every schema it creates. That is correct for a baseline and
 catastrophic anywhere else, so it refuses to run unless ATLAS_ALLOW_DESTRUCTIVE
