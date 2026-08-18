@@ -20,9 +20,12 @@ They had never executed: `db/schema.sql` could not be applied to an empty
 database, and because the suite skips when `ATLAS_TEST_DATABASE_URL` is unset,
 that failed silently from Phase 3 onward. Phases 1-10 were therefore signed off
 without their database-backed behaviour ever being exercised. Full suite is now
-316 passed. Two gates remain red and are documented, not hidden: `alembic
-upgrade head` cannot provision a database from empty, and strict mypy has 6
-unresolved errors from a deprecated PyMuPDF import.
+316 passed. `alembic upgrade head` now provisions a database from empty too —
+verified against a real, from-empty PostgreSQL 16 container using the
+documented `asyncpg` URL; see `docs/phase-11-resume-handoff.md` defect C for
+what was actually broken (three separate issues, not one). One gate remains
+red and is documented, not hidden: strict mypy has 6 unresolved errors from a
+deprecated PyMuPDF import.
 
 Phase 0.5's spike decisions are recorded in `docs/phase-0.5-decision-memo.md`:
 the event and reporting-store choices adopt the blueprint's stated defaults;

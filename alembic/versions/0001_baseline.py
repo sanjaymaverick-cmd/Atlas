@@ -54,10 +54,92 @@ SCHEMAS = (
 ).split()
 
 
+def _split_sql_statements(sql: str) -> list[str]:
+    """Split a SQL script into individually executable statements.
+
+    ATLAS_DATABASE_URL uses the asyncpg driver, which executes each statement
+    as a prepared statement and therefore cannot run a script containing more
+    than one command (`cannot insert multiple commands into a prepared
+    statement`) — unlike a synchronous driver using the simple query protocol.
+    db/schema.sql must run under asyncpg, so it is split into individual
+    top-level statements here rather than executed as one string.
+
+    Splits on semicolons, but not those inside a single-quoted string literal,
+    inside a `--` line comment, or inside a `$$...$$` dollar-quoted body (used
+    by this file's PL/pgSQL function and DO-block definitions, whose BEGIN/END
+    bodies contain semicolons that are not statement terminators).
+    """
+    statements = []
+    current: list[str] = []
+    in_single_quote = False
+    in_dollar_quote = False
+    in_line_comment = False
+    i = 0
+    n = len(sql)
+    while i < n:
+        ch = sql[i]
+        if in_line_comment:
+            current.append(ch)
+            if ch == "\n":
+                in_line_comment = False
+            i += 1
+            continue
+        if in_dollar_quote:
+            if sql.startswith("$$", i):
+                in_dollar_quote = False
+                current.append("$$")
+                i += 2
+                continue
+            current.append(ch)
+            i += 1
+            continue
+        if in_single_quote:
+            current.append(ch)
+            if ch == "'":
+                in_single_quote = False
+            i += 1
+            continue
+        if sql.startswith("--", i):
+            in_line_comment = True
+            current.append(ch)
+            i += 1
+            continue
+        if ch == "'":
+            in_single_quote = True
+            current.append(ch)
+            i += 1
+            continue
+        if sql.startswith("$$", i):
+            in_dollar_quote = True
+            current.append("$$")
+            i += 2
+            continue
+        if ch == ";":
+            current.append(ch)
+            statement = "".join(current).strip()
+            current = []
+            i += 1
+            if statement and not all(
+                line.strip() == "" or line.strip().startswith("--")
+                for line in statement.splitlines()
+            ):
+                statements.append(statement)
+            continue
+        current.append(ch)
+        i += 1
+    tail = "".join(current).strip()
+    if tail and not all(
+        line.strip() == "" or line.strip().startswith("--") for line in tail.splitlines()
+    ):
+        statements.append(tail)
+    return statements
+
+
 def upgrade() -> None:
     if not SCHEMA_SQL.exists():  # pragma: no cover - defensive
         raise RuntimeError(f"canonical schema not found at {SCHEMA_SQL}")
-    op.execute(SCHEMA_SQL.read_text(encoding="utf-8"))
+    for statement in _split_sql_statements(SCHEMA_SQL.read_text(encoding="utf-8")):
+        op.execute(statement)
 
 
 def downgrade() -> None:

@@ -2,11 +2,19 @@
 
 Revision ID: 0002_webauthn_challenges
 Revises: 0001_baseline
+
+No-op. `identity.webauthn_challenges` was added to `db/schema.sql` by commit
+`4e4c85d` ("Complete WebAuthn and local Phase 2 documents") after `0001_baseline`
+had already declared the file frozen, so `0001_baseline` applying `db/schema.sql`
+verbatim already creates this table (and its index) with the exact definition
+this revision used to create. Running both against an empty database failed
+with `relation "webauthn_challenges" already exists`, which meant
+`alembic upgrade head` could not provision a database from empty — see
+`docs/phase-11-resume-handoff.md` defect C. `0001_baseline` remains the sole
+owner of this table; this revision now only marks the chain's position.
 """
 
 from __future__ import annotations
-
-from alembic import op
 
 revision = "0002_webauthn_challenges"
 down_revision = "0001_baseline"
@@ -15,24 +23,8 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute(
-        """
-        CREATE TABLE identity.webauthn_challenges (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          user_id UUID REFERENCES identity.users(id),
-          ceremony_type TEXT NOT NULL
-            CHECK (ceremony_type IN ('registration','authentication')),
-          challenge TEXT NOT NULL,
-          expires_at TIMESTAMPTZ NOT NULL,
-          used_at TIMESTAMPTZ,
-          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-        );
-        CREATE INDEX idx_webauthn_challenges_expires
-          ON identity.webauthn_challenges(expires_at)
-          WHERE used_at IS NULL;
-        """
-    )
+    pass
 
 
 def downgrade() -> None:
-    op.execute("DROP TABLE identity.webauthn_challenges")
+    pass

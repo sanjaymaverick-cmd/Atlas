@@ -194,24 +194,63 @@ and upstream has announced removal of the alias. Root cause is the unpinned
 pin a reviewed version — a documents-module change needing its own review, and
 one that pairs with the existing Phase 2 renderer-sandboxing item.
 
-**C. `alembic upgrade head` fails on a clean database at `0002`.**
+**C. `alembic upgrade head` fails on a clean database — FIXED 2026-08-18.**
 `0001_baseline` applies `db/schema.sql`, which already contains
 `identity.webauthn_challenges` — it was added to the file by commit `4e4c85d`
 ("Complete WebAuthn and local Phase 2 documents") *after* `0001` declared the
 file frozen. `0002_webauthn_challenges` then creates the same table again and
 fails with `relation "webauthn_challenges" already exists`.
 
-Consequence: the migration path — the documented way to provision a database —
-cannot build one from empty. This was masked because the integration fixture
-applies `db/schema.sql` directly and never exercises the migration chain, so
-the full test suite passes while `alembic upgrade head` is broken. Discovered
-2026-08-18 while sanity-checking the schema change above; not caused by it.
+This was masked because the integration fixture applies `db/schema.sql`
+directly and never exercises the migration chain, so the full test suite
+passed while `alembic upgrade head` was broken. Discovered 2026-08-18 while
+sanity-checking the schema-reordering change above; not caused by it.
 
-Resolving it is an owner decision: either drop `webauthn_challenges` from
-`db/schema.sql` so `0002` owns it, or make `0002` a no-op against a baseline
-that already has the table, or re-baseline the chain. Whichever is chosen, add
-a CI check that runs `alembic upgrade head` against an empty database, since
-nothing currently tests that path.
+Investigating past the first failure found the defect is not confined to
+`0002`: `db/schema.sql` is not a Phase-1 snapshot, it is a continuously-updated
+file already carrying the full end-state schema for all 11 phases (verified —
+89 tables, every domain). `0001_baseline` applies that whole file, so every
+migration from `0002` through `0012` was redundant with it and would have hit
+the same "already exists" collision in turn, one revision at a time, had
+anyone gotten that far. Since Atlas has no previously-provisioned database
+anywhere — the owner confirmed there is nothing to preserve, provisioning is
+always from empty — the fix made in commit-to-follow was to turn every
+migration from `0002` through `0012` into a documented no-op; `0001_baseline`
+remains the sole revision that actually creates schema, and the later
+revisions now only mark the chain's historical position. Each no-op's
+docstring records why and points back to `0003_document_versioning` for the
+full rationale so the reasoning isn't lost to a one-line commit message.
+
+A second, independent defect surfaced while verifying the fix:
+`alembic/env.py` built a synchronous engine via `engine_from_config`, but
+`ATLAS_DATABASE_URL` is documented (see README) as an `asyncpg` URL — asyncpg
+is fundamentally async, so `connectable.connect()` failed with
+`MissingGreenlet` for anyone following the README exactly. Fixed with
+Alembic's standard async recipe (`async_engine_from_config` +
+`AsyncConnection.run_sync`).
+
+A third defect surfaced immediately after: `0001_baseline` executes all of
+`db/schema.sql` — hundreds of semicolon-separated statements — as a single
+string. That works under a synchronous driver using the simple query protocol,
+but asyncpg always executes through prepared statements, and PostgreSQL's wire
+protocol does not allow multiple commands in one prepared statement
+(`cannot insert multiple commands into a prepared statement`). Fixed by
+splitting the file into individual top-level statements before executing each
+one — the splitter tracks `'...'` string literals, `--` line comments, and the
+`$$...$$` dollar-quoted bodies of this file's four PL/pgSQL functions and one
+DO block, so semicolons inside any of those are not treated as statement
+boundaries. Verified: 170 statements, 88 of them `CREATE TABLE` matching the
+table count exactly, no statement merges two commands, and the trailing
+DO-block trigger-attach step still runs (68 `trg_set_updated_at` triggers
+attached).
+
+Verified end-to-end against a disposable PostgreSQL 16 container, using the
+exact documented `postgresql+asyncpg://` URL, from a database dropped and
+recreated (not just schema-cleared) immediately before the run:
+`alembic upgrade head` succeeds, lands at `0012_phase11_ai_safety (head)`, and
+produces the same 89 tables `db/schema.sql` alone produces. A CI step
+("Alembic upgrade head (empty database)") now runs this on every build so the
+path cannot regress silently again.
 
 ## Pending gates and work
 
@@ -223,8 +262,10 @@ drift apart.
   against a real PostgreSQL 16 instance, 0 skipped. First time they have ever
   executed, so the Phase 1-10 database-backed behaviour is only now evidenced.
 - Strict mypy is **not** clean: 6 pre-existing `fitz` errors (defect B).
-- `alembic upgrade head` is **broken** on a clean database (defect C), and the
-  test suite does not cover the migration path, so CI does not catch it.
+- `alembic upgrade head` is **fixed** (defect C) — verified against a
+  disposable PostgreSQL 16 container from empty, using the documented
+  `asyncpg` URL, landing at `0012_phase11_ai_safety (head)` with the same 89
+  tables `db/schema.sql` alone produces. A CI step now runs it on every build.
 - Everything else passes: Ruff, import-linter, Alembic single-head, Bandit,
   pip-audit, and the full 316-test suite.
 - Phase 11 cannot be declared complete until the owner records the Blueprint §25
@@ -263,8 +304,9 @@ and PR #1 is open. What follows is what a new session should actually do.
 
 ## Recommended next delivery order
 
-1. Repair the migration chain so `alembic upgrade head` builds a database from
-   empty, and add CI coverage for that path — nothing currently tests it.
+1. ~~Repair the migration chain so `alembic upgrade head` builds a database from
+   empty, and add CI coverage for that path~~ — **done 2026-08-18**, see defect
+   C above.
 2. Resolve the PyMuPDF import and pin, so strict mypy is clean.
 3. Decide how the `db/schema.sql` freeze is enforced.
 4. Re-record the Phase 1-10 sign-offs against the now-passing integration suite.
@@ -298,15 +340,18 @@ phases were declared complete.
 
 ### Open items, in the order they should be taken
 
-1. **`alembic upgrade head` is broken** on a clean database at `0002`
-   (defect C above). The migration path cannot provision a database from empty,
-   and CI does not cover it. Highest priority: it is a real breakage in the
-   documented deployment path, not a policy question.
+1. ~~`alembic upgrade head` is broken on a clean database~~ — **fixed
+   2026-08-18** (defect C above): migrations `0002`-`0012` made no-ops,
+   `alembic/env.py` given an async engine, `0001_baseline` split into
+   individually-executable statements, and a CI step added so it cannot
+   regress silently. Verified against a real, from-empty PostgreSQL 16
+   container.
 2. **Strict mypy is not clean** — 6 pre-existing `fitz` errors (defect B).
    Needs a decision on pinning PyMuPDF and moving to the `pymupdf` import.
 3. **Freeze enforcement for `db/schema.sql`** is still open. The exception in
    `b990bdc` is ratified, but the rule has no mechanism behind it and has
-   already been breached once unnoticed — which is what caused item 1.
+   already been breached at least twice unnoticed (`webauthn_challenges` and
+   every later phase's additions) — which is what caused item 1.
 4. **Re-record the Phase 1-10 sign-offs** on the basis of the now-passing
    integration coverage.
 5. **The Blueprint §25 AI hosting decision** — owner-gated, and the gate on
@@ -317,6 +362,6 @@ phases were declared complete.
 - Do not implement a real inference provider before item 5 is decided and
   recorded. Phase 11 is a fail-closed safety foundation, not a working AI
   feature, and must not drift past that boundary.
-- Do not declare Phase 11 complete while items 1-3 are open.
-- Do not merge PR #1 without a decision on items 1 and 2 — the branch carries
-  two known-failing gates, both documented rather than hidden.
+- Do not declare Phase 11 complete while items 2-3 are open.
+- Do not merge PR #1 without a decision on item 2 — the branch carries one
+  known-failing gate, documented rather than hidden.

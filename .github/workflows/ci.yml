@@ -62,6 +62,13 @@ jobs:
           enable-cache: true
       - run: uv venv --python 3.12
       - run: uv pip install -e ".[dev]"
+      # Provisioning a database from empty is the documented deployment path;
+      # nothing else in this job exercises it, since the fixture below applies
+      # db/schema.sql directly rather than through the migration chain.
+      - name: Alembic upgrade head (empty database)
+        env:
+          ATLAS_DATABASE_URL: postgresql+asyncpg://atlas:atlas@localhost:5432/atlas_test
+        run: uv run alembic upgrade head
       - name: Unit tests
         run: uv run pytest -m unit
       - name: Integration tests
