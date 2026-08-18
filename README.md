@@ -23,9 +23,14 @@ without their database-backed behaviour ever being exercised. Full suite is now
 316 passed. `alembic upgrade head` now provisions a database from empty too —
 verified against a real, from-empty PostgreSQL 16 container using the
 documented `asyncpg` URL; see `docs/phase-11-resume-handoff.md` defect C for
-what was actually broken (three separate issues, not one). One gate remains
-red and is documented, not hidden: strict mypy has 6 unresolved errors from a
-deprecated PyMuPDF import.
+what was actually broken (three separate issues, not one).
+
+No completion gate is red. Strict mypy is clean at 157 files — and the 6
+`fitz` errors previously recorded against it turned out not to reproduce at
+all; they were an incomplete-virtualenv artefact rather than a code defect,
+and the fix proposed for them would have made the gate worse. The PyMuPDF
+imports were still moved off the deprecated `fitz` alias and pinned. See
+defect B in the handover for that correction in full.
 
 Phase 0.5's spike decisions are recorded in `docs/phase-0.5-decision-memo.md`:
 the event and reporting-store choices adopt the blueprint's stated defaults;

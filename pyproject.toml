@@ -14,7 +14,12 @@ dependencies = [
     "alembic>=1.14",
     "webauthn>=2.2",
     "cryptography>=43.0",
-    "pymupdf>=1.24",
+    # Pinned to the reviewed 1.28 series. Imported as `pymupdf`, not the
+    # deprecated `fitz` alias, which warns at runtime and which upstream has
+    # announced it will remove. This buys deprecation-safety, not type safety:
+    # see the mypy override below for why the library stays effectively
+    # untyped either way.
+    "pymupdf>=1.28.2,<1.29",
     "typer>=0.15",
 ]
 
@@ -70,6 +75,16 @@ plugins = ["pydantic.mypy"]
 [[tool.mypy.overrides]]
 module = ["webauthn.*"]
 ignore_missing_imports = true
+
+# PyMuPDF ships a py.typed marker but its callables carry no annotations, so
+# taking it at its word makes strict mode reject every call into it as an
+# untyped call in a typed context (20 errors across the preview renderer and
+# its tests). Skipping the import restores the same Any-typed view the
+# deprecated `fitz` alias gave us, without importing a name upstream has
+# announced it will remove.
+[[tool.mypy.overrides]]
+module = ["pymupdf.*"]
+follow_imports = "skip"
 
 # ---------------------------------------------------------------------------
 # Tests

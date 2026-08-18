@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import cast
 from uuid import UUID, uuid4
 
-import fitz  # type: ignore[import-untyped]
+import pymupdf
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -129,7 +129,7 @@ def service() -> DocumentsService:
 
 
 def pdf_bytes() -> bytes:
-    document = fitz.open()
+    document = pymupdf.open()
     document.new_page().insert_text((72, 72), "Synthetic controlled drawing")
     content = document.tobytes()
     document.close()
@@ -296,7 +296,7 @@ async def test_preview_render_requires_the_originating_session_and_verifies_stor
         token=token,
         device_trust=DeviceTrust.ELEVATED,
     )
-    rendered_pdf = fitz.open(stream=rendered, filetype="pdf")
+    rendered_pdf = pymupdf.open(stream=rendered, filetype="pdf")
     try:
         rendered_text = rendered_pdf[0].get_text()
         assert f"ATLAS user:{actor_id}" in rendered_text

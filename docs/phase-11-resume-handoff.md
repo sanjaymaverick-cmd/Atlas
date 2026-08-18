@@ -184,15 +184,55 @@ history. Before the schema fix below they had never executed at all.
 
 ### Defects still open — pre-existing, not fixed
 
-**B. Strict mypy cannot resolve `import fitz` (6 errors in 3 files).**
-`atlas/modules/documents/preview.py` and two documents test modules import the
-deprecated PyMuPDF alias with `# type: ignore[import-untyped]`. PyMuPDF 1.28.2
-ships `fitz` without a `py.typed` marker, so mypy reports `import-not-found` and
-also flags the existing suppression as unused. Runtime still works but warns,
-and upstream has announced removal of the alias. Root cause is the unpinned
-`pymupdf>=1.24`. Fix is to import `pymupdf` (which does carry `py.typed`) and
-pin a reviewed version — a documents-module change needing its own review, and
-one that pairs with the existing Phase 2 renderer-sandboxing item.
+**B. Strict mypy `fitz` errors — MISDIAGNOSED, and now resolved differently
+(2026-08-18).** The claim recorded here was: PyMuPDF 1.28.2 ships `fitz`
+without a `py.typed` marker, so mypy reports `import-not-found` and flags the
+existing `# type: ignore[import-untyped]` as unused, 6 errors in 3 files; fix
+by importing `pymupdf` (which does carry `py.typed`) and pinning a version.
+
+Both halves turned out to be wrong. Recorded here in full because the
+reasoning matters more than the diff.
+
+*The 6 errors were not reproducible.* Re-run against `atlas/` with
+`--no-incremental` (ruling out a stale cache), strict mypy reported
+`Success: no issues found in 157 source files` before any change was made. The
+config is genuinely `strict = true` with no blanket `ignore_missing_imports`
+and no exclude covering the documents modules, so the check was really
+running. Note that strict mode implies `warn_unused_ignores`, and mypy did
+*not* flag the existing suppressions — meaning they were doing real work, i.e.
+`fitz` was resolving and reporting `import-untyped` exactly as the suppression
+expects. The likely cause of the original 6 is recorded in this document's own
+environment notes: "`~/.atlas-venv` needed `pymupdf` installed separately; it
+was missing." With the package absent, each of the 3 files yields
+`import-not-found` *plus* an unused-ignore (the real code was
+`import-not-found`, not the suppressed `import-untyped`) — 3 x 2 = the 6
+errors reported. So this was an incomplete virtualenv, not a code defect.
+
+*The proposed fix makes strict mypy worse, not better.* Switching the three
+files to `import pymupdf` and re-running took the tree from 0 errors to **20**.
+PyMuPDF does ship a `py.typed` marker, but its callables carry no annotations;
+taking the marker at its word means strict mode's `disallow_untyped_calls`
+rejects every call into the library (`Document`, `Rect`, `tobytes`, `close`,
+`get_text`), and `Document` is not declared iterable so `for page in document`
+fails too. A `py.typed` marker asserts typedness; it does not supply it.
+
+*What was actually done.* The move off `fitz` is still worth making on its own
+merits — it is deprecated, emits a `DeprecationWarning`, and upstream has
+announced removal — so the imports now use `pymupdf`, paired with a mypy
+override (`module = ["pymupdf.*"]`, `follow_imports = "skip"`) that restores
+the same Any-typed view the `fitz` suppression provided. The dependency is
+pinned to the reviewed series (`pymupdf>=1.28.2,<1.29`), which also bounds the
+alias-removal risk. Verified: strict mypy clean at 157 files, 278 unit tests
+pass, 24 documents tests pass, Ruff clean, no `fitz` import left in the
+codebase, and importing the preview module under `-W error::DeprecationWarning`
+now succeeds.
+
+*What was not gained.* This buys deprecation-safety and a version pin, not
+type coverage. The preview renderer's calls into PyMuPDF remain effectively
+unchecked, exactly as before. Genuinely type-checking them would need a local
+stub package, which is a real piece of work and has not been done — it pairs
+with the still-open Phase 2 renderer-sandboxing item, since this module renders
+untrusted PDFs.
 
 **C. `alembic upgrade head` fails on a clean database — FIXED 2026-08-18.**
 `0001_baseline` applies `db/schema.sql`, which already contains
@@ -261,7 +301,9 @@ drift apart.
 - PostgreSQL integration coverage is now **verified**: 38 integration tests pass
   against a real PostgreSQL 16 instance, 0 skipped. First time they have ever
   executed, so the Phase 1-10 database-backed behaviour is only now evidenced.
-- Strict mypy is **not** clean: 6 pre-existing `fitz` errors (defect B).
+- Strict mypy is **clean** (157 files) — and was already clean before this
+  work began; the recorded 6 `fitz` errors were an incomplete-virtualenv
+  artefact, not a code defect. See defect B for the full correction.
 - `alembic upgrade head` is **fixed** (defect C) — verified against a
   disposable PostgreSQL 16 container from empty, using the documented
   `asyncpg` URL, landing at `0012_phase11_ai_safety (head)` with the same 89
@@ -346,8 +388,14 @@ phases were declared complete.
    individually-executable statements, and a CI step added so it cannot
    regress silently. Verified against a real, from-empty PostgreSQL 16
    container.
-2. **Strict mypy is not clean** — 6 pre-existing `fitz` errors (defect B).
-   Needs a decision on pinning PyMuPDF and moving to the `pymupdf` import.
+2. ~~Strict mypy is not clean — 6 pre-existing `fitz` errors~~ — **closed
+   2026-08-18**: the errors were not reproducible (incomplete virtualenv, not
+   a code defect), and the proposed fix would have made strict mypy worse
+   (0 errors to 20). The imports moved to `pymupdf` anyway for
+   deprecation-safety, with an override preserving the clean result and the
+   dependency pinned to `>=1.28.2,<1.29`. See defect B. Residual, not
+   blocking: PyMuPDF calls are still effectively untyped; real coverage needs
+   a stub package, which pairs with Phase 2 renderer sandboxing.
 3. **Freeze enforcement for `db/schema.sql`** is still open. The exception in
    `b990bdc` is ratified, but the rule has no mechanism behind it and has
    already been breached at least twice unnoticed (`webauthn_challenges` and

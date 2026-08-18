@@ -80,28 +80,44 @@ instance. None was introduced by Phase 11; all predate it.
   session-token auth, and same-transaction audit writes included. Those tests
   now pass, but confirm the per-phase sign-offs are re-recorded on that basis
   rather than left resting on the earlier, weaker evidence.
-- [ ] BLOCKING: `alembic upgrade head` fails on a clean database at revision
-  `0002`. `0001_baseline` applies `db/schema.sql`, which already contains
-  `identity.webauthn_challenges` — added to the file by commit `4e4c85d` after
-  the baseline declared it frozen. `0002_webauthn_challenges` then creates the
-  same table again and fails with `relation "webauthn_challenges" already
-  exists`. The migration path is the documented way to provision a database, so
-  it cannot currently build one from empty. The test suite applies
-  `db/schema.sql` directly and never exercises the migration chain, so this
-  passes CI while broken. Decide between removing the table from
-  `db/schema.sql` so `0002` owns it, making `0002` tolerate a baseline that
-  already has it, or re-baselining the chain — and add a CI job that runs
-  `alembic upgrade head` against an empty database.
-- [ ] BLOCKING: strict mypy does not pass. `atlas/modules/documents/preview.py`
-  and two documents test modules `import fitz`, the deprecated PyMuPDF alias.
-  PyMuPDF 1.28.2 ships `fitz` without a `py.typed` marker, so mypy reports
-  `import-not-found` and flags the existing `# type: ignore[import-untyped]`
-  as unused — 6 errors in 3 files. Runtime still works but emits a deprecation
-  warning, and upstream has announced removal of the alias. Root cause is the
-  unpinned `pymupdf>=1.24` in `pyproject.toml`. Approve switching these imports
-  to `pymupdf` (which does carry `py.typed`) and pinning a reviewed version.
-  Pin the version deliberately: this module renders untrusted PDFs, so the
-  sandboxing and version-pinning item under Phase 2 applies to the same change.
+- [x] RESOLVED 2026-08-18: `alembic upgrade head` failed on a clean database.
+  The recorded cause (`0002_webauthn_challenges` re-creating a table
+  `0001_baseline` already made via `db/schema.sql`) was real but was only the
+  first of three defects. `db/schema.sql` is not a Phase-1 snapshot but the
+  full end-state schema for all 11 phases, so migrations `0002`-`0012` were
+  *all* redundant with the baseline and would each have collided in turn;
+  additionally `alembic/env.py` built a sync engine for the documented async
+  `asyncpg` URL, and `0001_baseline` executed the whole schema file as one
+  multi-statement string, which asyncpg cannot do. Since Atlas has no
+  previously-provisioned database anywhere, `0002`-`0012` are now documented
+  no-ops, `env.py` uses Alembic's async recipe, and the baseline splits the
+  file into individual statements. Verified from empty against PostgreSQL 16
+  using the documented URL: 89 tables, head `0012_phase11_ai_safety`. A CI
+  step now covers the path. No owner decision outstanding.
+- [x] RESOLVED 2026-08-18: strict mypy. **The recorded diagnosis was wrong on
+  both counts and the correction is worth reading before trusting this
+  register's other type-checking claims.** The 6 `fitz` errors did not
+  reproduce — strict mypy was already clean (157 files, verified with
+  `--no-incremental` to rule out cache staleness) before any change. The
+  original errors are best explained by this project's own note that
+  `~/.atlas-venv` was missing `pymupdf` entirely: an absent package yields
+  `import-not-found` plus an unused-ignore per file, 3 x 2 = the 6 reported.
+  That is an incomplete virtualenv, not a code defect. Worse, the approved fix
+  would have *regressed* the gate: switching to `import pymupdf` took the tree
+  from 0 errors to 20, because PyMuPDF ships a `py.typed` marker without
+  actually annotating its callables, so strict mode rejects every call into it.
+  A `py.typed` marker asserts typedness; it does not supply it. The imports
+  were still moved to `pymupdf` for deprecation-safety (the `fitz` alias warns
+  at runtime and is slated for removal), paired with a
+  `follow_imports = "skip"` override that preserves the clean result, and the
+  dependency is pinned to `pymupdf>=1.28.2,<1.29`. Verified: mypy clean, 278
+  unit and 24 documents tests pass, Ruff clean, no `fitz` import remains.
+- [ ] Residual from the above, NOT blocking: PyMuPDF calls in
+  `atlas/modules/documents/preview.py` are still effectively untyped — the
+  override buys deprecation-safety and a pin, not type coverage. Genuinely
+  checking them needs a local stub package. Decide whether that is worth doing;
+  it pairs with the Phase 2 renderer-sandboxing item below, since this module
+  renders untrusted PDFs.
 - [ ] Two integration tests were wrong in ways only a real run could expose, and
   both had been wrong since the phase that introduced them: one inserted a
   `trust_level` value (`'trusted'`) the CHECK constraint has never allowed, and

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import cast
 
-import fitz  # type: ignore[import-untyped]
+import pymupdf
 
 
 class PreviewRenderError(Exception):
@@ -16,7 +16,7 @@ def render_watermarked_pdf(content: bytes, *, watermark_text: str) -> bytes:
     if not watermark_text or len(watermark_text) > 500:
         raise PreviewRenderError("watermark text is missing or too long")
     try:
-        document = fitz.open(stream=content, filetype="pdf")
+        document = pymupdf.open(stream=content, filetype="pdf")
     except Exception as exc:
         raise PreviewRenderError("content is not a readable PDF") from exc
     try:
@@ -27,12 +27,12 @@ def render_watermarked_pdf(content: bytes, *, watermark_text: str) -> bytes:
             page_rect = page.rect
             y = max(36.0, page_rect.height * 0.45)
             page.insert_textbox(
-                fitz.Rect(24, y, page_rect.width - 24, y + 80),
+                pymupdf.Rect(24, y, page_rect.width - 24, y + 80),
                 watermark_text,
                 fontsize=12,
                 fontname="helv",
                 color=(0.45, 0.45, 0.45),
-                align=fitz.TEXT_ALIGN_CENTER,
+                align=pymupdf.TEXT_ALIGN_CENTER,
                 fill_opacity=0.22,
                 overlay=True,
             )

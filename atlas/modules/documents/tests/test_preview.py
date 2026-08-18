@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import cast
 
-import fitz  # type: ignore[import-untyped]
+import pymupdf
 import pytest
 
 from atlas.modules.documents.preview import PreviewRenderError, render_watermarked_pdf
@@ -13,7 +13,7 @@ pytestmark = pytest.mark.unit
 
 
 def synthetic_pdf() -> bytes:
-    document = fitz.open()
+    document = pymupdf.open()
     page = document.new_page()
     page.insert_text((72, 72), "Synthetic drawing preview")
     document.set_metadata({"author": "Synthetic Author", "title": "Synthetic Title"})
@@ -25,7 +25,7 @@ def synthetic_pdf() -> bytes:
 def test_watermark_is_embedded_on_every_page_and_metadata_is_scrubbed() -> None:
     watermark = "ATLAS user:synthetic session:synthetic utc:2026-08-17T00:00:00Z"
     rendered = render_watermarked_pdf(synthetic_pdf(), watermark_text=watermark)
-    document = fitz.open(stream=rendered, filetype="pdf")
+    document = pymupdf.open(stream=rendered, filetype="pdf")
     try:
         assert watermark in document[0].get_text()
         assert "Synthetic drawing preview" in document[0].get_text()
