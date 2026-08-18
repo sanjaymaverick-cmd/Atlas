@@ -419,9 +419,19 @@ phases were declared complete.
    service tests and one route-thinness test each. So the now-passing suite
    genuinely upgrades the evidence for Phase 1, and leaves Phases 3-10 exactly
    where they were. Re-recording those on the basis of "integration coverage
-   now passes" would overstate what was verified. The register lists the
-   specific database-enforced rules still unevidenced and what a defensible
-   sign-off looks like for each phase.
+   now passes" would overstate what was verified.
+
+   **Partly closed since:** `tests/integration/test_phase_domain_invariants.py`
+   adds one integration test per phase for Phases 3-10, each pinned to that
+   phase's strongest database-enforced rule and each asserting *which*
+   constraint rejected the violation, so a test cannot pass by tripping a
+   different rule. Suite is now 325 passed, 0 skipped. That makes a sign-off
+   **scoped to the named rule** defensible — "the unit double-booking guarantee
+   is evidenced" is now true, "Phase 8 is verified" still is not. The
+   service-layer guarantees (same-transaction audit, optimistic versioning, the
+   cumulative and workflow checks) remain untested outside Phase 1, and that is
+   where most of the business logic lives. See the register for the ordered
+   list of what to close next.
 5. **The Blueprint §25 AI hosting decision** — owner-gated, and the gate on
    everything else in Phase 11.
 

@@ -9,8 +9,15 @@ passes." It is deliberately not a sign-off itself: nothing here attests that a
 phase is complete. That judgement is the owner's, and this register exists to
 make it an informed one.
 
-Counts are from `pytest --collect-only` on 2026-08-18: 278 unit tests, 39
-integration tests, 317 total, 0 skipped when `ATLAS_TEST_DATABASE_URL` is set.
+Counts are from `pytest --collect-only` on 2026-08-18: 278 unit tests, 47
+integration tests, 325 total, 0 skipped when `ATLAS_TEST_DATABASE_URL` is set.
+
+**Updated later the same day.** The gap this register identified has since been
+partly closed: `tests/integration/test_phase_domain_invariants.py` adds one
+integration test per phase for Phases 3-10, each pinned to that phase's
+strongest database-enforced rule. The original finding and the remaining gap
+are both preserved below, because what is *still* unevidenced matters more to a
+sign-off than what is now covered.
 
 ## Read this before signing anything
 
@@ -37,20 +44,45 @@ was never anything there to run.
 
 ## Per-phase evidence
 
+"Integration" below shows the count as originally found, then as it stands after
+the Phase 3-10 invariant tests were added.
+
 | Phase | Module(s) | Integration | Unit | Route |
 | --- | --- | ---: | ---: | ---: |
 | 1 — identity, org, audit, owner console | `identity`, `organization`, `audit`, `platform` | **36** | 166 | yes |
 | 2 — documents | `documents` | **2** | 24 | yes |
-| 3 — land, compliance | `land`, `compliance` | **0** | 4 | 1 |
-| 4 — commercial | `commercial` | **0** | 5 | 1 |
-| 5 — construction, QA/QC | `construction` | **0** | 7 | 1 |
-| 6 — project controls | `project_controls` | **0** | 3 | 1 |
-| 7 — change control | `change_control` | **0** | 4 | 1 |
-| 8 — customer lifecycle | `customer_lifecycle` | **0** | 3 | 1 |
-| 9 — Tally reconciliation | `finance` | **0** | 3 | 1 |
-| 10 — reporting | `reporting` | **0** | 4 | 1 |
+| 3 — land, compliance | `land`, `compliance` | 0 → **1** | 4 | 1 |
+| 4 — commercial | `commercial` | 0 → **1** | 5 | 1 |
+| 5 — construction, QA/QC | `construction` | 0 → **1** | 7 | 1 |
+| 6 — project controls | `project_controls` | 0 → **1** | 3 | 1 |
+| 7 — change control | `change_control` | 0 → **1** | 4 | 1 |
+| 8 — customer lifecycle | `customer_lifecycle` | 0 → **1** | 3 | 1 |
+| 9 — Tally reconciliation | `finance` | 0 → **1** | 3 | 1 |
+| 10 — reporting | `reporting` | 0 → **1** | 4 | 1 |
 | 11 — AI safety | `ai_assistant` | **0** | 19 | 1 |
 | cross-cutting | schema / migrations | **1** | — | — |
+
+### What the Phase 3-10 invariant tests prove
+
+One test each, in `test_phase_domain_invariants.py`, each asserting that a
+violation is *rejected* and naming the constraint that rejected it — so a test
+cannot pass by tripping a different rule on the same table:
+
+| Phase | Rule now evidenced |
+| --- | --- |
+| 3 | a RERA registration number cannot be claimed by two projects |
+| 4 | a vendor cannot hold two onboarding records |
+| 5 | a replayed site-diary entry is rejected by its device idempotency key |
+| 6 | material cannot be received against another project's purchase order |
+| 7 | an NCR cannot cite an inspection belonging to another project |
+| 8 | a unit cannot be actively booked twice, and cancelling releases it |
+| 9 | the same reconciliation fact cannot be raised twice, NULL voucher included |
+| 10 | a project-scoped report cannot be requested without a project |
+
+Phase 8's test also asserts the positive case, because the guarantee is a
+*partial* unique index: after the first booking is cancelled the unit must
+become bookable again. A blanket unique index would satisfy the rejection and
+fail that, so both halves are needed to pin the actual behaviour.
 
 Phase 1's 166 unit tests are `identity` (72) plus the `platform` services every
 phase relies on (94: step-up 24, access control 21, secrets 18, backup 16, audit
@@ -93,24 +125,36 @@ by the database, and therefore is not exercised by any currently passing test.
 These are the ones worth resolving before a sign-off, because each is a rule the
 system is *claimed* to guarantee:
 
-- **Phase 4** — "purchase orders cannot be issued until the vendor is active",
-  and executed contracts require immutable document evidence.
-- **Phase 6** — "material issuance is serialized against its receipt and rejects
-  cumulative quantities above accepted stock"; the composite
-  `(id, project_id)` foreign keys that stop cross-project references.
-- **Phase 8** — "more than one active booking per unit" is prevented by the
-  partial unique index `uq_active_booking_unit`, which only a real database can
-  enforce; likewise installment and collection over-allocation, and linkage to
-  an unexecuted or wrong-customer contract.
-- **Phase 9** — the `uq_reconciliation_fact` unique index and the guard that
-  refuses import when pre-existing Tally vouchers are present.
-- **Phase 10** — that aggregate reads use the distinct read-replica session and
-  never the transactional one. The route test asserts the wiring; nothing
-  asserts the behaviour against two real databases.
-- **All phases 3-10** — the blueprint-wide invariants: every mutation writes its
-  audit event *in the same transaction*, optimistic versioning holds under
-  concurrency, and archival replaces deletion. Phase 1 proves these for
-  `organization.projects`. Nothing proves them for the other domains.
+Struck-through items are now covered by `test_phase_domain_invariants.py`. The
+rest are still open, and they are the ones that matter for a sign-off.
+
+- **Phase 4** — "purchase orders cannot be issued until the vendor is active"
+  is **not a database rule at all**: `procurement.purchase_orders` carries a
+  comment saying it is enforced at the application layer per Blueprint §11. It
+  therefore needs a service-level test, and no schema constraint will ever
+  catch it. Executed contracts requiring immutable document evidence is
+  likewise service-level.
+- **Phase 6** — ~~the composite `(id, project_id)` foreign keys~~ now covered.
+  Still open: "material issuance is serialized against its receipt and rejects
+  cumulative quantities above accepted stock", which is a service-level check
+  over accumulated rows, not a constraint.
+- **Phase 8** — ~~more than one active booking per unit~~ now covered, both the
+  rejection and the release-on-cancel. Still open: installment and collection
+  over-allocation, and linkage to an unexecuted or wrong-customer contract.
+- **Phase 9** — ~~`uq_reconciliation_fact`~~ now covered, including the NULL
+  voucher path. Still open: the guard that refuses import when pre-existing
+  Tally vouchers are present.
+- **Phase 10** — ~~the project-scope check on report requests~~ now covered.
+  Still open, and the more important one: that aggregate reads use the distinct
+  read-replica session and never the transactional one. The route test asserts
+  the wiring; nothing asserts the behaviour against two real databases.
+- **All phases 3-10** — still entirely open, and the largest remaining gap: the
+  blueprint-wide invariants. Every mutation writes its audit event *in the same
+  transaction*, optimistic versioning holds under concurrency, and archival
+  replaces deletion. Phase 1 proves these for `organization.projects`. Nothing
+  proves them for the other domains, and the new invariant tests do not — they
+  exercise constraints directly, deliberately bypassing the service layer where
+  those guarantees live.
 
 ## What sign-off is defensible today
 
@@ -120,22 +164,35 @@ A fair reading of the evidence:
   genuinely exercised, and the tests are pointed at the things that matter.
 - **Phase 2** — re-record with the narrowness noted; two integration tests is
   thin for the size of the phase.
-- **Phases 3-10** — **do not re-record on the basis of integration coverage,
-  because there is none.** Either sign off explicitly on the weaker basis
-  (service-level unit tests and route-thinness tests, with the database-enforced
-  rules untested and named as such), or commission integration tests for the
-  invariants listed above first. The second is the honest path if these phases
-  are meant to be "verified" in the sense Phase 1 now is.
+- **Phases 3-10** — each now has one integration test proving its strongest
+  database-enforced rule, which is a real improvement on nothing but is still
+  materially weaker than Phase 1's 36. Defensible to re-record **scoped to that
+  named rule**: "the unit double-booking guarantee is evidenced" is now true;
+  "Phase 8 is verified" is not. The service-layer guarantees — same-transaction
+  audit, optimistic versioning, the cumulative and workflow checks — remain
+  untested for these phases, and they are where most of the business logic
+  actually lives. Sign off on the specific rule, or commission service-level
+  tests before claiming the phase as a whole.
 - **Phase 11** — not eligible; it remains a fail-closed foundation pending the
   Blueprint §25 hosting decision.
 
 ## Suggested next step
 
-The gap is concrete and finite. One integration test per phase, aimed at that
-phase's single most important database-enforced invariant — the ones listed
-above — would take Phases 3-10 from "asserted" to "evidenced" at a cost of
-roughly eight tests. That is a much smaller job than it looks, because the
-fixtures, the schema, and the audit-verification helpers already exist and are
-proven by the Phase 1 suite.
+The eight database-invariant tests are done. The remaining gap has shifted from
+"no integration coverage" to "no *service-level* integration coverage", and it
+is the more valuable half.
+
+The highest-return next piece is a same-transaction audit test for one non-Phase-1
+domain — proving that a mutation and its audit event commit together, and that a
+failed mutation writes no event. Phase 1's `test_project_crud_audit.py` already
+does exactly this for `organization.projects` and is a direct template. If that
+invariant holds in one more domain by the same mechanism, the blueprint-wide
+claim becomes credible; if it does not, that is a defect worth finding before
+go-live rather than after.
+
+After that, in rough order of risk: Phase 10's read-replica separation (it is a
+data-leak boundary, not just a performance one), Phase 8's over-allocation
+checks, and Phase 4's vendor-active gate, which no schema constraint can ever
+catch.
 
 Recorded so the choice is deliberate rather than inherited.
