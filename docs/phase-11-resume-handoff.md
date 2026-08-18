@@ -119,8 +119,10 @@ history. Before the schema fix below they had never executed at all.
    Note on the freeze rule: `0001_baseline` declares `db/schema.sql` frozen from
    that revision onward. This edit is a deliberate, narrow exception — the file
    as committed could not be applied by any path, and the change is provably
-   content-identical, so no already-provisioned database diverges. Owner should
-   confirm the exception is acceptable.
+   content-identical, so no already-provisioned database diverges.
+   **Ratified by the repository owner on 2026-08-18**, for this specific
+   reordering only; it is not standing permission to edit the file. How the
+   freeze is *enforced* remains open — see `docs/production-readiness-todo.md`.
 
 2. **`trust_level` in `tests/integration/test_session_token_auth.py`** inserted
    `'trusted'`, which the canonical DDL has never permitted — the CHECK allows

@@ -16,6 +16,17 @@ Alembic revisions. The file stays in the repository as the readable, annotated
 description of the whole data model — Blueprint §6 — and remains what a fresh
 Phase-1 database is built from, but it is no longer edited in place.
 
+One ratified exception exists, recorded here because this docstring is where the
+freeze is declared and a reader who sees only the rule would be misled. On
+2026-08-18 the owner approved commit b990bdc, which reordered db/schema.sql so
+the documents section precedes land. Grounds: as committed the file referenced
+documents.documents before that schema existed, so it could not be applied to an
+empty database and this migration could not run at all. The change is a pure
+relocation — sorted contents identical before and after — so no statement
+changed and no provisioned database diverges. The exception covers that
+reordering only; the freeze otherwise stands. See
+docs/production-readiness-todo.md, where enforcement of the rule is still open.
+
 Downgrade drops every schema it creates. That is correct for a baseline and
 catastrophic anywhere else, so it refuses to run unless ATLAS_ALLOW_DESTRUCTIVE
 _DOWNGRADE is set.

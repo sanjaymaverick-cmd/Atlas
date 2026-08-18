@@ -47,13 +47,33 @@ instance. None was introduced by Phase 11; all predate it.
   Effect: the 38 PostgreSQL integration tests now pass for the first time
   (0 skipped), and migration `0001_baseline`, which applies `db/schema.sql`
   verbatim, now succeeds against an empty database (89 tables).
-- [ ] OWNER CONFIRMATION: `0001_baseline` declares `db/schema.sql` frozen from
-  that revision onward, and the fix above edits it anyway. It was treated as a
-  narrow, deliberate exception because the committed file could not be applied
-  by any path and the edit is provably content-identical, so no provisioned
-  database diverges. Confirm the exception, and decide how the freeze rule is
-  enforced going forward — it has already been breached once unnoticed (see the
-  Alembic item below).
+- [x] RATIFIED 2026-08-18 by the repository owner: the edit to `db/schema.sql`
+  in commit `b990bdc` is an approved exception to the freeze `0001_baseline`
+  declares from that revision onward.
+
+  Grounds for the exception, recorded so the decision can be audited later:
+  the file as committed could not be applied by any path, which made
+  `0001_baseline` itself unrunnable; the change is a pure relocation whose
+  sorted contents are identical before and after, so no statement was added,
+  removed, or altered; and the resulting object set is unchanged, so no
+  already-provisioned database diverges from one built after the change.
+
+  Scope of this ratification: **this specific reordering only.** It is not
+  standing permission to edit `db/schema.sql`. The freeze otherwise stands, and
+  any future change to the file needs its own recorded exception or a new
+  Alembic revision.
+
+- [ ] STILL OPEN — how the freeze rule is enforced. Ratifying the exception
+  above does not answer this, and the rule has already been breached once
+  without anyone noticing: commit `4e4c85d` added
+  `identity.webauthn_challenges` to a file that `0001_baseline` had declared
+  frozen, which is the direct cause of the broken migration chain below.
+  A prose declaration in a docstring is not an enforcement mechanism. Options
+  worth weighing: a CI check that fails if `db/schema.sql` changes without an
+  accompanying recorded exception; a checksum of the file asserted by
+  `0001_baseline`; or dropping the freeze language and treating the file as
+  genuinely canonical-and-editable, with the migration chain rebuilt from it.
+  Decide deliberately rather than by default.
 - [ ] RE-VERIFY EARLIER PHASES: because integration tests had never executed,
   Phases 1-10 were each signed off without their database-backed behaviour ever
   being exercised — audit hash-chain, append-only triggers, break-glass,
