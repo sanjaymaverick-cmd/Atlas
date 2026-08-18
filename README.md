@@ -6,9 +6,23 @@ architecture and `db/schema.sql` for the PostgreSQL schema.
 
 ## Status
 
-**Phase 4 local implementation** — the Phase 1 foundation, Phase 2 document
-control, Phase 3 land/compliance, and Phase 4 commercial workflows are built
-locally.
+**Phases 1-10 built locally; Phase 11 is a fail-closed AI safety boundary with
+no inference provider wired up.** Work is on the `phase-1-foundation` branch
+(draft PR #1); `main` is still at the Phase 0 commit.
+
+**Start here:** `docs/phase-11-resume-handoff.md` is the authoritative handover —
+current state, environment setup, verified gates, known-broken items, and the
+ordered list of what to do next. `docs/production-readiness-todo.md` is the
+register of every decision the owner must sign off before go-live.
+
+As of 2026-08-18 the 38 PostgreSQL integration tests pass for the first time.
+They had never executed: `db/schema.sql` could not be applied to an empty
+database, and because the suite skips when `ATLAS_TEST_DATABASE_URL` is unset,
+that failed silently from Phase 3 onward. Phases 1-10 were therefore signed off
+without their database-backed behaviour ever being exercised. Full suite is now
+316 passed. Two gates remain red and are documented, not hidden: `alembic
+upgrade head` cannot provision a database from empty, and strict mypy has 6
+unresolved errors from a deprecated PyMuPDF import.
 
 Phase 0.5's spike decisions are recorded in `docs/phase-0.5-decision-memo.md`:
 the event and reporting-store choices adopt the blueprint's stated defaults;
