@@ -410,8 +410,18 @@ phases were declared complete.
    and it genuinely catches drift (injecting a table into `0012` failed the
    build, naming the offending table). The declaration in `0001_baseline`'s
    docstring has been rewritten accordingly.
-4. **Re-record the Phase 1-10 sign-offs** on the basis of the now-passing
-   integration coverage.
+4. **Re-record the Phase 1-10 sign-offs.** Evidence prepared 2026-08-18 in
+   `docs/phase-evidence-register.md`, which maps every phase to the tests that
+   actually substantiate it. **Read it before signing:** the premise of this
+   item does not survive contact with the data. All 38 pre-existing
+   integration tests cover Phase 1 (36) and a two-test slice of Phase 2;
+   Phases 3-11 have **no integration coverage at all**, only database-free
+   service tests and one route-thinness test each. So the now-passing suite
+   genuinely upgrades the evidence for Phase 1, and leaves Phases 3-10 exactly
+   where they were. Re-recording those on the basis of "integration coverage
+   now passes" would overstate what was verified. The register lists the
+   specific database-enforced rules still unevidenced and what a defensible
+   sign-off looks like for each phase.
 5. **The Blueprint §25 AI hosting decision** — owner-gated, and the gate on
    everything else in Phase 11.
 
