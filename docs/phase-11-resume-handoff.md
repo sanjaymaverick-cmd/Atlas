@@ -1,6 +1,6 @@
 # Atlas Cross-Tool Handoff — Phase 11 Checkpoint
 
-Updated: 2026-08-17 (Asia/Calcutta)
+Updated: 2026-08-18 (Asia/Calcutta)
 
 This document is the authoritative resume point for another agentic coding
 tool. Continue from the existing repository state. Do not rebuild or replace
@@ -73,12 +73,14 @@ The default inference provider fails closed with `hosting_not_configured`.
 - Same-transaction minimized audit event for every evaluated or blocked query.
 - Import-linter boundaries, README guidance, and Phase 11 owner TODO decisions.
 
-## Verification run of 2026-08-17 (completion gates)
+## Verification runs of 2026-08-17 / 2026-08-18 (completion gates)
 
-All gates below were rerun after the Phase 11 changes, from a virtualenv on the
-Linux filesystem (`~/.atlas-venv`) rather than the `/mnt` drive. That removes the
-DrvFs latency that stalled the previous strict-mypy attempt; mypy now completes
-in well under a minute.
+All gates were rerun from a virtualenv on the Linux filesystem (`~/.atlas-venv`)
+rather than the `/mnt` drive. That removes the DrvFs latency that stalled the
+previous strict-mypy attempt; mypy now completes in well under a minute.
+
+PostgreSQL was real, not mocked: a local PostgreSQL 16.15 cluster (micromamba,
+port 55432, socket `/tmp`) with disposable databases recreated per run.
 
 | Gate | Result |
 | --- | --- |
@@ -88,68 +90,97 @@ in well under a minute.
 | Alembic heads | `0012_phase11_ai_safety` is the sole head |
 | Bandit (`-ll`) | 0 medium, 0 high, 0 `nosec` suppressions, 0 skipped tests |
 | pip-audit | no known vulnerabilities (only the local `atlas` package skipped) |
-| Strict mypy | **6 pre-existing errors remain** — see below |
-| pytest (unit) | 278 passed |
-| pytest (PostgreSQL integration) | **38 errored, 0 ran** — see below |
+| Strict mypy | **6 pre-existing errors remain** — defect B below |
+| pytest — unit | 278 passed |
+| pytest — PostgreSQL integration | **38 passed, 0 skipped, 0 errored** |
+| pytest — full suite | **316 passed** |
 | Phase 11 AI safety + HTTP tests | 55 passed |
+| `alembic upgrade 0001_baseline` | applies cleanly, 89 tables |
+| `alembic upgrade head` | **fails at 0002** — defect C below |
 
-PostgreSQL was available for this run: a local PostgreSQL 16.15 cluster
-(micromamba, port 55432, socket `/tmp`) with a disposable `atlas_test` database.
-The integration tests were therefore *not* skipped for lack of a database — they
-were attempted against a real server and failed in fixture setup.
+The 38 PostgreSQL integration tests pass for the first time in the project's
+history. Before the schema fix below they had never executed at all.
 
-### Fixed in this run (branch-caused)
+### Fixed in these runs
 
-- `atlas/api/tests/test_api.py:721` carried a `# type: ignore[arg-type]` on
-  `assistant_service=assistant or FakeAssistant()` that strict mypy reported as
-  unused. `FakeAssistant` satisfies the parameter type, so the suppression was
-  removed. This was the only mypy error introduced by Phase 11.
+1. **`db/schema.sql` now applies to a clean database.** The `documents` section
+   was relocated to sit after `organization` and before `land`, because
+   `land.due_diligence_items` references `documents.documents(id)`. The move is
+   a pure relocation: the sorted contents of the file before and after are
+   byte-identical, so no statement was added, removed, or altered and the
+   resulting database is the same set of objects in a different creation order.
+   Hoisting `CREATE SCHEMA documents` alone was tried first and is *not*
+   sufficient — the apply then fails on the missing table.
 
-### Blocking defects found, both pre-existing and out of this branch's scope
+   This also repairs migration `0001_baseline`, which executes `db/schema.sql`
+   verbatim. `alembic upgrade 0001_baseline` against an empty database now
+   succeeds and creates 89 tables; previously it could not run at all.
 
-Neither defect was introduced by the Phase 11 work, and neither was fixed here.
-Both are recorded in `docs/production-readiness-todo.md` for owner decision.
+   Note on the freeze rule: `0001_baseline` declares `db/schema.sql` frozen from
+   that revision onward. This edit is a deliberate, narrow exception — the file
+   as committed could not be applied by any path, and the change is provably
+   content-identical, so no already-provisioned database diverges. Owner should
+   confirm the exception is acceptable.
 
-1. **`db/schema.sql` cannot be applied to a clean database.**
-   `land.due_diligence_items` (line 314) declares
-   `evidence_document_id UUID REFERENCES documents.documents(id)`, but the
-   `documents` schema and its `documents` table are not created until line 406.
-   Applying the canonical DDL to an empty database fails at line 323 with
-   `relation "documents.documents" does not exist`.
-   This dates to Phase 3 commit `7dd0c2f`, not to Phase 11. It is the single
-   reason all 38 PostgreSQL integration tests error in fixture setup, and it
-   means that integration coverage — including the audit hash-chain, append-only
-   trigger, break-glass, and same-transaction audit tests — has not actually
-   executed since Phase 3. Earlier phases were verified with
-   `ATLAS_TEST_DATABASE_URL` unset, so the suite skipped rather than failed and
-   the defect stayed invisible.
-   Hoisting `CREATE SCHEMA documents` alone is not sufficient; this was tested
-   and the apply then fails on the missing table. The `documents` section
-   (lines 406-490) references only `identity` and `organization`, both of which
-   are created before `land`, so relocating that whole section to sit after
-   `organization` and before `land` is a self-contained fix. It is a structural
-   reordering of canonical DDL and needs owner approval on its own change.
+2. **`trust_level` in `tests/integration/test_session_token_auth.py`** inserted
+   `'trusted'`, which the canonical DDL has never permitted — the CHECK allows
+   `'standard'`/`'elevated'` and `DeviceTrust` mirrors exactly those. Every
+   sibling integration test already used `'standard'`. Wrong since Phase 1
+   (`92d0478`) and invisible because the test never ran.
 
-2. **Strict mypy cannot resolve `import fitz` (6 errors in 3 files).**
-   `atlas/modules/documents/preview.py:7` and two documents test modules import
-   the deprecated `fitz` alias with `# type: ignore[import-untyped]`. The
-   installed PyMuPDF 1.28.2 ships `fitz` as a deprecated shim without a
-   `py.typed` marker, so mypy reports `import-not-found` and additionally flags
-   the existing `import-untyped` suppression as unused. The import still works
-   at runtime but emits a deprecation warning, and PyMuPDF has announced the
-   alias will be removed.
-   The import line is unchanged since Phase 3 commit `7dd0c2f`; Phase 11 does
-   not touch the documents module. The trigger is `pymupdf>=1.24` being
-   unpinned in `pyproject.toml`, letting a newer release change the packaging.
-   The durable fix is to import `pymupdf` (which does carry `py.typed`) and pin
-   a reviewed version — a documents-module change requiring its own review.
+3. **`test_valid_token_authenticates_and_plain_token_is_not_stored`** asserted
+   with `scalar_one()` over the whole of `identity.sessions`, which silently
+   assumed it was the only test ever to write a session row. True in isolation,
+   false in a full-suite run. The assertion is now scoped to the row the test
+   seeds, which preserves its meaning (the stored value is the hash, and the
+   plain token is not stored anywhere).
+
+4. **`atlas/api/tests/test_api.py:721`** carried a `# type: ignore[arg-type]` on
+   `assistant_service=assistant or FakeAssistant()` that strict mypy reported as
+   unused. `FakeAssistant` satisfies the parameter type, so it was removed. This
+   was the only mypy error Phase 11 introduced.
+
+### Defects still open — pre-existing, not fixed
+
+**B. Strict mypy cannot resolve `import fitz` (6 errors in 3 files).**
+`atlas/modules/documents/preview.py` and two documents test modules import the
+deprecated PyMuPDF alias with `# type: ignore[import-untyped]`. PyMuPDF 1.28.2
+ships `fitz` without a `py.typed` marker, so mypy reports `import-not-found` and
+also flags the existing suppression as unused. Runtime still works but warns,
+and upstream has announced removal of the alias. Root cause is the unpinned
+`pymupdf>=1.24`. Fix is to import `pymupdf` (which does carry `py.typed`) and
+pin a reviewed version — a documents-module change needing its own review, and
+one that pairs with the existing Phase 2 renderer-sandboxing item.
+
+**C. `alembic upgrade head` fails on a clean database at `0002`.**
+`0001_baseline` applies `db/schema.sql`, which already contains
+`identity.webauthn_challenges` — it was added to the file by commit `4e4c85d`
+("Complete WebAuthn and local Phase 2 documents") *after* `0001` declared the
+file frozen. `0002_webauthn_challenges` then creates the same table again and
+fails with `relation "webauthn_challenges" already exists`.
+
+Consequence: the migration path — the documented way to provision a database —
+cannot build one from empty. This was masked because the integration fixture
+applies `db/schema.sql` directly and never exercises the migration chain, so
+the full test suite passes while `alembic upgrade head` is broken. Discovered
+2026-08-18 while sanity-checking the schema change above; not caused by it.
+
+Resolving it is an owner decision: either drop `webauthn_challenges` from
+`db/schema.sql` so `0002` owns it, or make `0002` a no-op against a baseline
+that already has the table, or re-baseline the chain. Whichever is chosen, add
+a CI check that runs `alembic upgrade head` against an empty database, since
+nothing currently tests that path.
 
 ## Pending gates and work
 
-- Strict mypy is **not** clean: 6 pre-existing `fitz` errors remain. The one
-  Phase 11-caused error was fixed in this run.
-- PostgreSQL integration coverage is **not** verified: 38 tests error in fixture
-  setup because the canonical DDL will not apply to a clean database.
+- PostgreSQL integration coverage is now **verified**: 38 integration tests pass
+  against a real PostgreSQL 16 instance, 0 skipped. This is the first time they
+  have executed. Phases 1-10 were previously signed off without this coverage,
+  so their database-backed behaviour is only now actually evidenced.
+- Strict mypy is **not** clean: 6 pre-existing `fitz` errors remain (defect B).
+  The one Phase 11-caused error was fixed.
+- `alembic upgrade head` is **broken** on a clean database (defect C). The full
+  test suite does not cover the migration path, so this is not caught by CI.
 - Owner must approve self-hosted open-weight inference or a commercial provider
   under an executed enterprise zero-retention DPA before a real provider is
   implemented or Phase 11 is declared complete.

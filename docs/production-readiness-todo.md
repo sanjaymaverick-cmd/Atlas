@@ -32,26 +32,46 @@ off before production data or users are introduced.
   schema detail, and the break-glass design are all visible. Decide before any
   real data, deployment configuration, or credential material is introduced.
 
-## Verification integrity — found 2026-08-17, blocking
+## Verification integrity — found 2026-08-17/18
 
-These two defects were found when the Phase 11 completion gates were rerun
-against a real PostgreSQL instance. Neither was introduced by the Phase 11 work;
-both predate it and both need an owner-approved, separately scoped change.
+Found when the Phase 11 completion gates were rerun against a real PostgreSQL
+instance. None was introduced by Phase 11; all predate it.
 
-- [ ] BLOCKING: `db/schema.sql` cannot be applied to a clean database.
-  `land.due_diligence_items` references `documents.documents(id)` at line 314,
-  but the `documents` schema is not created until line 406, so a clean apply
-  fails at line 323 with `relation "documents.documents" does not exist`.
-  Consequence: **all 38 PostgreSQL integration tests have errored in fixture
-  setup since Phase 3 (`7dd0c2f`)**, so the audit hash-chain, append-only
-  trigger, break-glass, session-token, and same-transaction audit tests have
-  never actually executed. Earlier phases ran with `ATLAS_TEST_DATABASE_URL`
-  unset, so the suite skipped instead of failing and the defect stayed hidden.
-  Any phase previously declared complete on database-backed behaviour should be
-  re-verified once this is fixed. Moving `CREATE SCHEMA documents` alone is not
-  enough (tested); the `documents` section at lines 406-490 depends only on
-  `identity` and `organization` and can be relocated ahead of `land` as a
-  self-contained fix. Approve that reordering of canonical DDL explicitly.
+- [x] RESOLVED 2026-08-18: `db/schema.sql` could not be applied to a clean
+  database. `land.due_diligence_items` referenced `documents.documents(id)`
+  before the `documents` schema was created, so a clean apply failed with
+  `relation "documents.documents" does not exist`. The `documents` section was
+  relocated to sit after `organization` and before `land`. The move is a pure
+  relocation — sorted file contents are identical before and after, so no
+  statement changed and the resulting object set is unchanged.
+  Effect: the 38 PostgreSQL integration tests now pass for the first time
+  (0 skipped), and migration `0001_baseline`, which applies `db/schema.sql`
+  verbatim, now succeeds against an empty database (89 tables).
+- [ ] OWNER CONFIRMATION: `0001_baseline` declares `db/schema.sql` frozen from
+  that revision onward, and the fix above edits it anyway. It was treated as a
+  narrow, deliberate exception because the committed file could not be applied
+  by any path and the edit is provably content-identical, so no provisioned
+  database diverges. Confirm the exception, and decide how the freeze rule is
+  enforced going forward — it has already been breached once unnoticed (see the
+  Alembic item below).
+- [ ] RE-VERIFY EARLIER PHASES: because integration tests had never executed,
+  Phases 1-10 were each signed off without their database-backed behaviour ever
+  being exercised — audit hash-chain, append-only triggers, break-glass,
+  session-token auth, and same-transaction audit writes included. Those tests
+  now pass, but confirm the per-phase sign-offs are re-recorded on that basis
+  rather than left resting on the earlier, weaker evidence.
+- [ ] BLOCKING: `alembic upgrade head` fails on a clean database at revision
+  `0002`. `0001_baseline` applies `db/schema.sql`, which already contains
+  `identity.webauthn_challenges` — added to the file by commit `4e4c85d` after
+  the baseline declared it frozen. `0002_webauthn_challenges` then creates the
+  same table again and fails with `relation "webauthn_challenges" already
+  exists`. The migration path is the documented way to provision a database, so
+  it cannot currently build one from empty. The test suite applies
+  `db/schema.sql` directly and never exercises the migration chain, so this
+  passes CI while broken. Decide between removing the table from
+  `db/schema.sql` so `0002` owns it, making `0002` tolerate a baseline that
+  already has it, or re-baselining the chain — and add a CI job that runs
+  `alembic upgrade head` against an empty database.
 - [ ] BLOCKING: strict mypy does not pass. `atlas/modules/documents/preview.py`
   and two documents test modules `import fitz`, the deprecated PyMuPDF alias.
   PyMuPDF 1.28.2 ships `fitz` without a `py.typed` marker, so mypy reports
@@ -62,6 +82,13 @@ both predate it and both need an owner-approved, separately scoped change.
   to `pymupdf` (which does carry `py.typed`) and pinning a reviewed version.
   Pin the version deliberately: this module renders untrusted PDFs, so the
   sandboxing and version-pinning item under Phase 2 applies to the same change.
+- [ ] Two integration tests were wrong in ways only a real run could expose, and
+  both had been wrong since the phase that introduced them: one inserted a
+  `trust_level` value (`'trusted'`) the CHECK constraint has never allowed, and
+  one asserted with `scalar_one()` across the whole `identity.sessions` table,
+  assuming it was the only test ever to write a session. Treat this as evidence
+  that tests which have never been executed are not evidence of anything, and
+  require the integration suite to run in CI before any phase is signed off.
 
 ## Phase 2 — Documents
 

@@ -263,6 +263,91 @@ CREATE INDEX idx_units_floor ON organization.units(floor_id);
 CREATE INDEX idx_units_status ON organization.units(status);
 
 -- =====================================================================
+-- SCHEMA: documents   (Blueprint §4, §13 Document Engine)
+-- =====================================================================
+CREATE SCHEMA IF NOT EXISTS documents;
+
+CREATE TABLE documents.documents (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id     UUID NOT NULL REFERENCES organization.projects(id),
+  building_id    UUID REFERENCES organization.buildings(id),
+  floor_id       UUID REFERENCES organization.floors(id),
+  unit_id        UUID REFERENCES organization.units(id),
+  discipline     TEXT,          -- architectural, structural, MEP, etc.
+  drawing_number TEXT,
+  document_type  TEXT,
+  classification TEXT NOT NULL DEFAULT 'internal' CHECK (classification IN ('public','internal','confidential','restricted')),
+  status         TEXT NOT NULL DEFAULT 'uploaded'
+    CHECK (status IN ('uploaded','virus_scanned','classified','under_review','approved','issued','superseded','archived')),
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by     UUID REFERENCES identity.users(id),
+  updated_by     UUID REFERENCES identity.users(id),
+  version        INTEGER NOT NULL DEFAULT 1,
+  archived_at    TIMESTAMPTZ
+);
+
+CREATE TABLE documents.document_versions (
+  id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  document_id             UUID NOT NULL REFERENCES documents.documents(id),
+  revision_code           TEXT NOT NULL,
+  issue_purpose           TEXT,
+  issue_date              DATE,
+  author_id               UUID REFERENCES identity.users(id),
+  reviewer_id             UUID REFERENCES identity.users(id),
+  approver_id             UUID REFERENCES identity.users(id),
+  superseded_version_id   UUID REFERENCES documents.document_versions(id),
+  related_change_request_id UUID,   -- FK added once construction.change_requests exists (Phase 7)
+  object_storage_key      TEXT NOT NULL UNIQUE,
+  checksum_sha256         TEXT NOT NULL CHECK (checksum_sha256 ~ '^[0-9a-f]{64}$'),
+  status                  TEXT NOT NULL DEFAULT 'draft'
+    CHECK (status IN (
+      'draft','virus_scanned','quarantined','under_review','approved','issued','superseded'
+    )),
+  created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (document_id, revision_code)
+);
+
+CREATE INDEX idx_documents_project ON documents.documents(project_id);
+CREATE INDEX idx_document_versions_document ON documents.document_versions(document_id);
+
+CREATE TABLE documents.preview_grants (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  document_version_id UUID NOT NULL REFERENCES documents.document_versions(id),
+  session_id        UUID NOT NULL REFERENCES identity.sessions(id),
+  created_by        UUID NOT NULL REFERENCES identity.users(id),
+  token_hash        TEXT NOT NULL UNIQUE,
+  watermark_text    TEXT NOT NULL,
+  expires_at        TIMESTAMPTZ NOT NULL,
+  revoked_at        TIMESTAMPTZ,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE documents.export_requests (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  document_version_id UUID NOT NULL REFERENCES documents.document_versions(id),
+  requested_by      UUID NOT NULL REFERENCES identity.users(id),
+  approved_by       UUID REFERENCES identity.users(id),
+  reason            TEXT NOT NULL,
+  decision_reason   TEXT,
+  status            TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending','approved','rejected','expired','downloaded')),
+  expires_at        TIMESTAMPTZ,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  version           INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE INDEX idx_preview_grants_expiry
+  ON documents.preview_grants(expires_at) WHERE revoked_at IS NULL;
+CREATE INDEX idx_export_requests_revision
+  ON documents.export_requests(document_version_id, status);
+CREATE UNIQUE INDEX uq_export_requests_pending_requester
+  ON documents.export_requests(document_version_id, requested_by)
+  WHERE status = 'pending';
+
+-- =====================================================================
 -- SCHEMA: land   (Blueprint §4)
 -- =====================================================================
 CREATE SCHEMA IF NOT EXISTS land;
@@ -399,91 +484,6 @@ CREATE TABLE compliance.compliance_obligations (
   version         INTEGER NOT NULL DEFAULT 1,
   archived_at     TIMESTAMPTZ
 );
-
--- =====================================================================
--- SCHEMA: documents   (Blueprint §4, §13 Document Engine)
--- =====================================================================
-CREATE SCHEMA IF NOT EXISTS documents;
-
-CREATE TABLE documents.documents (
-  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id     UUID NOT NULL REFERENCES organization.projects(id),
-  building_id    UUID REFERENCES organization.buildings(id),
-  floor_id       UUID REFERENCES organization.floors(id),
-  unit_id        UUID REFERENCES organization.units(id),
-  discipline     TEXT,          -- architectural, structural, MEP, etc.
-  drawing_number TEXT,
-  document_type  TEXT,
-  classification TEXT NOT NULL DEFAULT 'internal' CHECK (classification IN ('public','internal','confidential','restricted')),
-  status         TEXT NOT NULL DEFAULT 'uploaded'
-    CHECK (status IN ('uploaded','virus_scanned','classified','under_review','approved','issued','superseded','archived')),
-  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-  created_by     UUID REFERENCES identity.users(id),
-  updated_by     UUID REFERENCES identity.users(id),
-  version        INTEGER NOT NULL DEFAULT 1,
-  archived_at    TIMESTAMPTZ
-);
-
-CREATE TABLE documents.document_versions (
-  id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  document_id             UUID NOT NULL REFERENCES documents.documents(id),
-  revision_code           TEXT NOT NULL,
-  issue_purpose           TEXT,
-  issue_date              DATE,
-  author_id               UUID REFERENCES identity.users(id),
-  reviewer_id             UUID REFERENCES identity.users(id),
-  approver_id             UUID REFERENCES identity.users(id),
-  superseded_version_id   UUID REFERENCES documents.document_versions(id),
-  related_change_request_id UUID,   -- FK added once construction.change_requests exists (Phase 7)
-  object_storage_key      TEXT NOT NULL UNIQUE,
-  checksum_sha256         TEXT NOT NULL CHECK (checksum_sha256 ~ '^[0-9a-f]{64}$'),
-  status                  TEXT NOT NULL DEFAULT 'draft'
-    CHECK (status IN (
-      'draft','virus_scanned','quarantined','under_review','approved','issued','superseded'
-    )),
-  created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (document_id, revision_code)
-);
-
-CREATE INDEX idx_documents_project ON documents.documents(project_id);
-CREATE INDEX idx_document_versions_document ON documents.document_versions(document_id);
-
-CREATE TABLE documents.preview_grants (
-  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  document_version_id UUID NOT NULL REFERENCES documents.document_versions(id),
-  session_id        UUID NOT NULL REFERENCES identity.sessions(id),
-  created_by        UUID NOT NULL REFERENCES identity.users(id),
-  token_hash        TEXT NOT NULL UNIQUE,
-  watermark_text    TEXT NOT NULL,
-  expires_at        TIMESTAMPTZ NOT NULL,
-  revoked_at        TIMESTAMPTZ,
-  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE TABLE documents.export_requests (
-  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  document_version_id UUID NOT NULL REFERENCES documents.document_versions(id),
-  requested_by      UUID NOT NULL REFERENCES identity.users(id),
-  approved_by       UUID REFERENCES identity.users(id),
-  reason            TEXT NOT NULL,
-  decision_reason   TEXT,
-  status            TEXT NOT NULL DEFAULT 'pending'
-    CHECK (status IN ('pending','approved','rejected','expired','downloaded')),
-  expires_at        TIMESTAMPTZ,
-  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-  version           INTEGER NOT NULL DEFAULT 1
-);
-
-CREATE INDEX idx_preview_grants_expiry
-  ON documents.preview_grants(expires_at) WHERE revoked_at IS NULL;
-CREATE INDEX idx_export_requests_revision
-  ON documents.export_requests(document_version_id, status);
-CREATE UNIQUE INDEX uq_export_requests_pending_requester
-  ON documents.export_requests(document_version_id, requested_by)
-  WHERE status = 'pending';
 
 -- =====================================================================
 -- SCHEMA: design   (Blueprint §14 BIM Integration)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import text
@@ -35,7 +35,7 @@ async def _seed_session(
     token_hash: str,
     expires_at: datetime,
     revoked_at: datetime | None = None,
-) -> None:
+) -> UUID:
     user_id = uuid4()
     device_id = uuid4()
     await session.execute(
@@ -49,7 +49,7 @@ async def _seed_session(
         text(
             "INSERT INTO identity.devices "
             "(id, user_id, passkey_credential_id, public_key, trust_level, status) "
-            "VALUES (:id, :user_id, :credential_id, 'synthetic-key', 'trusted', 'active')"
+            "VALUES (:id, :user_id, :credential_id, 'synthetic-key', 'standard', 'active')"
         ),
         {"id": device_id, "user_id": user_id, "credential_id": f"synthetic-{device_id}"},
     )
@@ -68,13 +68,14 @@ async def _seed_session(
         },
     )
     await session.commit()
+    return user_id
 
 
 async def test_valid_token_authenticates_and_plain_token_is_not_stored(
     async_session: AsyncSession,
 ) -> None:
     token, token_hash = issue_token()
-    await _seed_session(
+    user_id = await _seed_session(
         async_session,
         token_hash=token_hash,
         expires_at=datetime.now(UTC) + timedelta(hours=1),
@@ -82,8 +83,13 @@ async def test_valid_token_authenticates_and_plain_token_is_not_stored(
     context = await IdentityService().authenticate_session_token(async_session, token)
     assert context is not None
     assert context.user_status == "active"
+    # Scoped to the row this test seeded: other integration tests share the
+    # database, so the table is not empty when the full suite runs.
     stored = (
-        await async_session.execute(text("SELECT session_token_hash FROM identity.sessions"))
+        await async_session.execute(
+            text("SELECT session_token_hash FROM identity.sessions WHERE user_id = :uid"),
+            {"uid": user_id},
+        )
     ).scalar_one()
     assert stored == token_hash
     assert token not in stored
