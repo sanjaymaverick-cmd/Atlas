@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, String
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Numeric, String, Table
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -55,6 +55,30 @@ class Permission(Base):
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
     code: Mapped[str] = mapped_column(String, unique=True)
     description: Mapped[str | None] = mapped_column(String)
+
+
+# A pure association table: no mapped class, because nothing needs to load a
+# role-permission pair as an object. It must still be declared, though —
+# ``repository.load_grants`` reaches for it through ``Base.metadata.tables`` to
+# join roles to permissions, and without this declaration that lookup raises
+# KeyError and every scoped authorisation check fails with a 500.
+role_permissions = Table(
+    "role_permissions",
+    Base.metadata,
+    Column(
+        "role_id",
+        PGUUID(as_uuid=True),
+        ForeignKey("identity.roles.id"),
+        primary_key=True,
+    ),
+    Column(
+        "permission_id",
+        PGUUID(as_uuid=True),
+        ForeignKey("identity.permissions.id"),
+        primary_key=True,
+    ),
+    schema="identity",
+)
 
 
 class UserRole(Base):

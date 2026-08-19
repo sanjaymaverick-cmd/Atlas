@@ -133,6 +133,55 @@ instance. None was introduced by Phase 11; all predate it.
   `follow_imports = "skip"` override that preserves the clean result, and the
   dependency is pinned to `pymupdf>=1.28.2,<1.29`. Verified: mypy clean, 278
   unit and 24 documents tests pass, Ruff clean, no `fitz` import remains.
+- [x] RESOLVED 2026-08-20 — **the scoped authorisation path was broken in
+  every environment, and the test suite did not notice.**
+  `identity/repository.load_grants` joins roles to permissions through
+  `Base.metadata.tables["identity.role_permissions"]`. That table exists in
+  `db/schema.sql` but had no ORM declaration in
+  `atlas/modules/identity/models.py`, so the lookup raised `KeyError` and every
+  call to `IdentityService.check_scoped_role` failed. In practice that meant
+  **every authenticated business request in Atlas returned HTTP 500** — not
+  only projects: documents, land, commercial, construction, customer
+  lifecycle, finance and reporting all authorise through the same call.
+
+  Found by building the web client, on the first authenticated request ever
+  made against a real database through the real identity service. Fixed by
+  declaring the association table.
+
+  Why 325 tests missed it, which matters more than the fix: the unit tests
+  cover `scoping.py`'s pure grant-interpretation logic, and the Phase 1
+  integration tests inject a stub identity that answers the authorisation
+  question directly, so nothing ever ran the real `check_scoped_role` against
+  PostgreSQL. This is exactly the service-level gap
+  `docs/phase-evidence-register.md` warns about, arriving as a production
+  defect within a day of that warning being written. Regression coverage added
+  in `tests/integration/test_scoped_authorisation.py`.
+
+  Worth acting on beyond the fix: any other `metadata.tables[...]` string
+  lookup is the same accident waiting to happen, and the register's
+  recommended service-level tests for Phases 3-10 should be taken seriously
+  rather than deferred.
+- [x] DECIDED 2026-08-20 by the repository owner: the frontend stack is
+  **React + Vite + TypeScript**, resolving the deferral recorded in
+  `docs/phase-1-module-boundaries.md` ("no frontend framework has been
+  chosen"). The stated reason for deferring — not building browser UI ahead of
+  a tested passkey ceremony — no longer holds now that the WebAuthn routes and
+  their tests exist. Lives in `web/`, TypeScript strict with
+  `exactOptionalPropertyTypes`, dependency-light by intent.
+- [ ] OPEN, owner decision: **where the browser keeps the opaque session
+  token.** The web client stores it in `sessionStorage`, which any injected
+  script can read. The alternative is an httpOnly, Secure, SameSite cookie,
+  which is materially stronger but requires the backend to set and read a
+  cookie rather than return the token in a JSON body — an API change, not a
+  frontend one. Current mitigation is only that tokens are short-lived and
+  server-revocable. Decide before any real data is entered.
+- [ ] OPEN, owner decision: **whether owner-console operations should be
+  reachable over HTTP at all.** Device approval, break-glass and audit
+  verification are CLI-only today, and the web client documents the commands
+  rather than performing them. That is a deliberate refusal, not an omission:
+  these require `is_owner` plus a fresh step-up, and putting them behind a
+  browser session widens the blast radius of a stolen session considerably.
+  If a web device-approval queue is wanted, it needs its own design and review.
 - [ ] Residual from the above, NOT blocking: PyMuPDF calls in
   `atlas/modules/documents/preview.py` are still effectively untyped — the
   override buys deprecation-safety and a pin, not type coverage. Genuinely
