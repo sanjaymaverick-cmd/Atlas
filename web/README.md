@@ -61,14 +61,36 @@ something a frontend should introduce quietly.
 
 ```
 src/
-  api/client.ts     the only place that talks to Atlas; bearer token, error envelope
-  api/types.ts      hand-written mirrors of atlas/api/schemas.py
-  auth/session.ts   where the opaque token lives, and why
-  auth/passkey.ts   WebAuthn ceremonies and the base64url conversions they need
-  auth/AuthContext  session state for the app
-  screens/          one file per screen
-  components/       the signed-in shell
+  api/client.ts        the only place that talks to Atlas; bearer token, error envelope
+  api/types.ts         hand-written mirrors of atlas/api/schemas.py
+  auth/session.ts      where the opaque token lives, and why
+  auth/passkey.ts      WebAuthn ceremonies and the base64url conversions they need
+  auth/AuthContext     session state for the app
+  context/ScopeContext legal entity + project, chosen once and shared
+  components/          shell, DataTable, ActionForm, ScopeBar
+  hooks/useResource    one GET endpoint, with loading and error states
+  screens/             one file per screen
+  workflows/catalog    every write for the modules that expose no reads
 ```
+
+## Why the Workflows screen looks the way it does
+
+Atlas publishes **104 POST endpoints and 11 GET**. Six modules — change
+control, compliance, construction and quality, customer lifecycle, finance and
+project controls — have **no GET endpoints at all**.
+
+You cannot build a register, a detail page or a row you click for a resource
+that cannot be read. So those modules get a Workflows screen: every write the
+API offers, driven from `workflows/catalog.ts`, where actions on an existing
+record ask for its UUID because nothing can list one.
+
+That is a limitation of the API, not a design preference, and the screen says
+so on its face rather than implying a completeness that is not there. Adding
+the read side is a backend program of roughly thirty scoped, tested endpoints;
+until then this is the honest shape.
+
+Modules with real reads — projects, documents, land parcels, budgets and the
+dashboards — get proper tables instead.
 
 Deliberately dependency-light. The API client is hand-written because the usual
 SPA auth libraries model tokens they can decode or refresh, and Atlas issues an
@@ -85,8 +107,16 @@ out-of-band device-approval step. There is nothing for such a library to do.
 - **Token storage is `sessionStorage`**, which any injected script can read. An
   httpOnly cookie would be stronger but needs a backend change. Recorded for
   owner review in `docs/production-readiness-todo.md`.
-- **Scope is Phase 1 only.** Projects and authentication. The other ~90
-  endpoints — documents, land, commercial, construction, customer lifecycle,
-  finance, reporting, AI — have no UI yet.
+- **Coverage is uneven, because the API is.** Projects, documents, land,
+  budgets and dashboards have real screens with tables. The six read-less
+  modules have workflow forms only. Documents intentionally omits binary
+  upload, watermarked preview and the four-eyes export flow — those need file
+  handling, a sandboxed viewer and a fresh passkey step-up, and a half-built
+  export is worse than none, since an export is a controlled release of
+  confidential material.
+- **Dashboards need a populated materialized view.** On a fresh database they
+  return 500 until `REFRESH MATERIALIZED VIEW reporting.mv_ceo_project_summary`
+  has run, and the reporting database expects logical replication that is not
+  configured. Recorded in `docs/production-readiness-todo.md`.
 - **No tests.** The API client and the base64url conversions in `passkey.ts` are
   the two pieces most worth covering, and neither is covered.

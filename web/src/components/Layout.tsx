@@ -2,6 +2,17 @@ import { NavLink, Outlet } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
 
+const NAV: { to: string; label: string }[] = [
+  { to: "/dashboard", label: "Dashboards" },
+  { to: "/projects", label: "Projects" },
+  { to: "/documents", label: "Documents" },
+  { to: "/land", label: "Land" },
+  { to: "/commercial", label: "Commercial" },
+  { to: "/workflows", label: "Workflows" },
+  { to: "/assistant", label: "Assistant" },
+  { to: "/owner-console", label: "Owner console" },
+];
+
 export function Layout() {
   const { session, signOut } = useAuth();
 
@@ -19,12 +30,15 @@ export function Layout() {
           <strong>Atlas</strong>
         </div>
         <nav className="topbar-nav">
-          <NavLink to="/projects" className={({ isActive }) => (isActive ? "nav-active" : "")}>
-            Projects
-          </NavLink>
-          <NavLink to="/owner-console" className={({ isActive }) => (isActive ? "nav-active" : "")}>
-            Owner console
-          </NavLink>
+          {NAV.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={({ isActive }) => (isActive ? "nav-active" : "")}
+            >
+              {item.label}
+            </NavLink>
+          ))}
         </nav>
         <div className="topbar-session">
           {expiryLabel && <span className="muted small">Session until {expiryLabel}</span>}

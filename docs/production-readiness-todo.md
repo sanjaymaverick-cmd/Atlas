@@ -161,6 +161,36 @@ instance. None was introduced by Phase 11; all predate it.
   lookup is the same accident waiting to happen, and the register's
   recommended service-level tests for Phases 3-10 should be taken seriously
   rather than deferred.
+- [ ] BLOCKING, found 2026-08-20: **the Phase 10 dashboards return HTTP 500 on
+  any freshly provisioned database, not stale or empty data.**
+  `db/schema.sql` creates `reporting.mv_ceo_project_summary ... WITH NO DATA`,
+  and PostgreSQL refuses to read a materialized view that has never been
+  populated — `ObjectNotInPrerequisiteStateError: materialized view
+  "mv_ceo_project_summary" has not been populated`. Nothing in the repository
+  ever issues `REFRESH MATERIALIZED VIEW`: the only mentions of the view are
+  its definition, its ORM mapping, and a line in
+  `docs/phase-10-completion-handoff.md` noting that refresh workers "remain
+  production" work.
+
+  So the gap itself was known; its consequence was not. "No refresh worker
+  yet" implies stale figures. The actual behaviour is that both dashboard
+  endpoints fail outright until someone refreshes the view by hand, which is
+  the difference between a reporting lag and an outage.
+
+  Compounding it, the reporting database is a *separate* database that Phase 10
+  expects to be fed by logical replication, and no replication is configured
+  anywhere in the repository. Even after a manual refresh the view aggregates
+  whatever the reporting database happens to hold, which on a fresh install is
+  nothing.
+
+  Needs, before go-live: logical replication from the transactional database,
+  a scheduled refresh (the unique project index already supports
+  `REFRESH ... CONCURRENTLY`), and a decision on what the endpoints should do
+  when the view is unpopulated — 500 is the wrong answer either way.
+
+  Found by building the dashboards UI. Like the authorisation defect above, it
+  was invisible to the suite: the four reporting tests are database-free, and
+  no integration test touches the reporting database at all.
 - [x] DECIDED 2026-08-20 by the repository owner: the frontend stack is
   **React + Vite + TypeScript**, resolving the deferral recorded in
   `docs/phase-1-module-boundaries.md` ("no frontend framework has been

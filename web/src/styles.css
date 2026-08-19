@@ -351,10 +351,81 @@ code {
   white-space: pre;
 }
 
-.entity-bar {
+.scope-bar {
   display: flex;
   align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.scope-bar .field-inline {
+  min-width: 260px;
+}
+.scope-error {
+  color: var(--danger-text);
+  font-size: 13px;
+  align-self: center;
+}
+
+.field-help {
+  font-size: 12px;
+  color: var(--muted);
+  opacity: 0.85;
+}
+
+.tabs-wrap {
+  flex-wrap: wrap;
+}
+.tabs-wrap .tab {
+  flex: 0 1 auto;
+}
+
+.align-right {
+  text-align: right;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
   gap: 10px;
+}
+.metric {
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.metric-warn {
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+}
+.metric-warn .metric-value {
+  color: var(--danger-text);
+}
+.metric-label {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.metric-value {
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.code-error {
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+  color: var(--danger-text);
+  white-space: pre-wrap;
 }
 
 .empty {
