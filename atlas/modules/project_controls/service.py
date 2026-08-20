@@ -112,6 +112,9 @@ def issuance_summary(r: MaterialIssuance) -> IssuanceSummary:
     )
 
 
+PERM_READ = "project_controls.read"
+
+
 class ProjectControlsService:
     def __init__(self, identity: IdentityContract) -> None:
         self._identity = identity
@@ -545,3 +548,65 @@ class ProjectControlsService:
             },
         )
         return issuance_summary(row)
+
+    # -- reads ------------------------------------------------------------
+    # Added 2026-08-20; this module previously published writes only.
+
+    async def list_bim_imports(
+        self, s: AsyncSession, *, actor_user_id: UUID, project_id: UUID
+    ) -> list[BimImportSummary]:
+        await self._require(s, actor_user_id, PERM_READ, project_id)
+        result = await s.execute(
+            select(BimImport)
+            .where(BimImport.project_id == project_id)
+            .where(BimImport.archived_at.is_(None))
+            .order_by(BimImport.created_at)
+        )
+        return [bim_summary(row) for row in result.scalars()]
+
+    async def list_cost_codes(
+        self, s: AsyncSession, *, actor_user_id: UUID, project_id: UUID
+    ) -> list[CostCodeSummary]:
+        await self._require(s, actor_user_id, PERM_READ, project_id)
+        result = await s.execute(
+            select(CostCode)
+            .where(CostCode.project_id == project_id)
+            .where(CostCode.archived_at.is_(None))
+            .order_by(CostCode.code)
+        )
+        return [code_summary(row) for row in result.scalars()]
+
+    async def list_quantities(
+        self, s: AsyncSession, *, actor_user_id: UUID, project_id: UUID
+    ) -> list[QuantitySummary]:
+        await self._require(s, actor_user_id, PERM_READ, project_id)
+        result = await s.execute(
+            select(QuantityItem)
+            .where(QuantityItem.project_id == project_id)
+            .where(QuantityItem.archived_at.is_(None))
+            .order_by(QuantityItem.created_at)
+        )
+        return [quantity_summary(row) for row in result.scalars()]
+
+    async def list_receipts(
+        self, s: AsyncSession, *, actor_user_id: UUID, project_id: UUID
+    ) -> list[ReceiptSummary]:
+        await self._require(s, actor_user_id, PERM_READ, project_id)
+        result = await s.execute(
+            select(MaterialReceipt)
+            .where(MaterialReceipt.project_id == project_id)
+            .where(MaterialReceipt.archived_at.is_(None))
+            .order_by(MaterialReceipt.received_date)
+        )
+        return [receipt_summary(row) for row in result.scalars()]
+
+    async def list_materials(
+        self, s: AsyncSession, *, actor_user_id: UUID
+    ) -> list[MaterialSummary]:
+        # The material master is estate-wide, not project-scoped, so this needs
+        # a global grant — the same scope create_material requires.
+        await self._require(s, actor_user_id, PERM_READ, None)
+        result = await s.execute(
+            select(Material).where(Material.archived_at.is_(None)).order_by(Material.name)
+        )
+        return [material_summary(row) for row in result.scalars()]

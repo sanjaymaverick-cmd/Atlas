@@ -122,6 +122,9 @@ def contract_summary(r: BookingContract) -> BookingContractSummary:
     )
 
 
+PERM_READ = "customer.read"
+
+
 class CustomerLifecycleService:
     def __init__(
         self,
@@ -678,3 +681,55 @@ class CustomerLifecycleService:
             },
         )
         return contract_summary(row)
+
+    # -- reads ------------------------------------------------------------
+    # Added 2026-08-20; this module previously published writes only.
+    #
+    # Collections and plans hang off a booking, and a booking carries the
+    # project, so those reads resolve the booking first and authorise against
+    # its project. Authorising against the booking id alone would let a caller
+    # scoped to one project read another's payment history.
+
+    async def _booking_or_refuse(self, s: AsyncSession, booking_id: UUID) -> Booking:
+        row = await s.get(Booking, booking_id)
+        if row is None:
+            raise CustomerLifecycleNotFoundError(f"booking {booking_id} does not exist")
+        return row
+
+    async def list_bookings(
+        self, s: AsyncSession, *, actor_user_id: UUID, project_id: UUID
+    ) -> list[BookingSummary]:
+        await self._require(s, actor_user_id, PERM_READ, project_id)
+        result = await s.execute(
+            select(Booking)
+            .where(Booking.project_id == project_id)
+            .where(Booking.archived_at.is_(None))
+            .order_by(Booking.booking_date)
+        )
+        return [booking_summary(row) for row in result.scalars()]
+
+    async def list_payment_plans(
+        self, s: AsyncSession, *, actor_user_id: UUID, booking_id: UUID
+    ) -> list[PlanSummary]:
+        booking = await self._booking_or_refuse(s, booking_id)
+        await self._require(s, actor_user_id, PERM_READ, booking.project_id)
+        result = await s.execute(
+            select(PaymentPlan)
+            .where(PaymentPlan.booking_id == booking_id)
+            .where(PaymentPlan.archived_at.is_(None))
+            .order_by(PaymentPlan.created_at)
+        )
+        return [plan_summary(row) for row in result.scalars()]
+
+    async def list_collections(
+        self, s: AsyncSession, *, actor_user_id: UUID, booking_id: UUID
+    ) -> list[CollectionSummary]:
+        booking = await self._booking_or_refuse(s, booking_id)
+        await self._require(s, actor_user_id, PERM_READ, booking.project_id)
+        result = await s.execute(
+            select(Collection)
+            .where(Collection.booking_id == booking_id)
+            .where(Collection.archived_at.is_(None))
+            .order_by(Collection.received_date)
+        )
+        return [collection_summary(row) for row in result.scalars()]

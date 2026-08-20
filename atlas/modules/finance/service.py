@@ -96,6 +96,9 @@ def reconciliation_summary(row: Reconciliation) -> ReconciliationSummary:
     )
 
 
+PERM_READ = "finance.read"
+
+
 class FinanceService:
     def __init__(self, identity: IdentityContract) -> None:
         self._identity = identity
@@ -390,3 +393,53 @@ class FinanceService:
             },
         )
         return reconciliation_summary(row)
+
+    # -- reads ------------------------------------------------------------
+    # Added 2026-08-20; this module previously published writes only.
+    #
+    # Finance is scoped by legal entity, not project: Tally is the statutory
+    # book of record per entity, and reconciliation is an entity-level activity.
+    # Vouchers are read through their batch so a caller cannot enumerate
+    # another entity's ledger by guessing batch ids.
+
+    async def _batch_or_refuse(self, s: AsyncSession, batch_id: UUID) -> TallyImportBatch:
+        row = await s.get(TallyImportBatch, batch_id)
+        if row is None:
+            raise FinanceNotFoundError(f"import batch {batch_id} does not exist")
+        return row
+
+    async def list_import_batches(
+        self, s: AsyncSession, *, actor_user_id: UUID, legal_entity_id: UUID
+    ) -> list[ImportBatchSummary]:
+        await self._require(s, actor_user_id, PERM_READ, legal_entity_id)
+        result = await s.execute(
+            select(TallyImportBatch)
+            .where(TallyImportBatch.legal_entity_id == legal_entity_id)
+            .where(TallyImportBatch.archived_at.is_(None))
+            .order_by(TallyImportBatch.created_at)
+        )
+        return [batch_summary(row) for row in result.scalars()]
+
+    async def list_vouchers(
+        self, s: AsyncSession, *, actor_user_id: UUID, batch_id: UUID
+    ) -> list[VoucherSummary]:
+        batch = await self._batch_or_refuse(s, batch_id)
+        await self._require(s, actor_user_id, PERM_READ, batch.legal_entity_id)
+        result = await s.execute(
+            select(TallyVoucher)
+            .where(TallyVoucher.import_batch_id == batch_id)
+            .order_by(TallyVoucher.voucher_date)
+        )
+        return [voucher_summary(row) for row in result.scalars()]
+
+    async def list_reconciliations(
+        self, s: AsyncSession, *, actor_user_id: UUID, legal_entity_id: UUID
+    ) -> list[ReconciliationSummary]:
+        await self._require(s, actor_user_id, PERM_READ, legal_entity_id)
+        result = await s.execute(
+            select(Reconciliation)
+            .where(Reconciliation.legal_entity_id == legal_entity_id)
+            .where(Reconciliation.archived_at.is_(None))
+            .order_by(Reconciliation.created_at)
+        )
+        return [reconciliation_summary(row) for row in result.scalars()]

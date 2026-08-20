@@ -137,6 +137,10 @@ def snag_summary(r: SnagItem) -> SnagSummary:
     )
 
 
+PERM_READ = "construction.read"
+PERM_QUALITY_READ = "quality.read"
+
+
 class ConstructionService:
     def __init__(self, identity: IdentityContract) -> None:
         self._identity = identity
@@ -814,3 +818,79 @@ class ConstructionService:
             after={"status": row.status, "version": row.version},
         )
         return snag_summary(row)
+
+    # -- reads ------------------------------------------------------------
+    # Added 2026-08-20; this module previously published writes only.
+    # Site diaries, EHS narratives and inspection notes are returned to an
+    # authorised reader here, but remain excluded from audit payloads and
+    # notification infrastructure as Phase 5 requires.
+
+    async def list_activities(
+        self, session: AsyncSession, *, actor_user_id: UUID, project_id: UUID
+    ) -> list[ScheduleSummary]:
+        await self._require(
+            session, actor=actor_user_id, permission=PERM_READ, project_id=project_id
+        )
+        result = await session.execute(
+            select(ScheduleActivity)
+            .where(ScheduleActivity.project_id == project_id)
+            .where(ScheduleActivity.archived_at.is_(None))
+            .order_by(ScheduleActivity.created_at)
+        )
+        return [activity_summary(row) for row in result.scalars()]
+
+    async def list_diary_entries(
+        self, session: AsyncSession, *, actor_user_id: UUID, project_id: UUID
+    ) -> list[SiteDiarySummary]:
+        await self._require(
+            session, actor=actor_user_id, permission=PERM_READ, project_id=project_id
+        )
+        result = await session.execute(
+            select(SiteDiaryEntry)
+            .where(SiteDiaryEntry.project_id == project_id)
+            .where(SiteDiaryEntry.archived_at.is_(None))
+            .order_by(SiteDiaryEntry.entry_date)
+        )
+        return [diary_summary(row) for row in result.scalars()]
+
+    async def list_ehs_incidents(
+        self, session: AsyncSession, *, actor_user_id: UUID, project_id: UUID
+    ) -> list[EhsSummary]:
+        await self._require(
+            session, actor=actor_user_id, permission=PERM_READ, project_id=project_id
+        )
+        result = await session.execute(
+            select(EhsIncident)
+            .where(EhsIncident.project_id == project_id)
+            .where(EhsIncident.archived_at.is_(None))
+            .order_by(EhsIncident.incident_date)
+        )
+        return [ehs_summary(row) for row in result.scalars()]
+
+    async def list_inspections(
+        self, session: AsyncSession, *, actor_user_id: UUID, project_id: UUID
+    ) -> list[InspectionSummary]:
+        await self._require(
+            session, actor=actor_user_id, permission=PERM_QUALITY_READ, project_id=project_id
+        )
+        result = await session.execute(
+            select(Inspection)
+            .where(Inspection.project_id == project_id)
+            .where(Inspection.archived_at.is_(None))
+            .order_by(Inspection.created_at)
+        )
+        return [inspection_summary(row) for row in result.scalars()]
+
+    async def list_snags(
+        self, session: AsyncSession, *, actor_user_id: UUID, project_id: UUID
+    ) -> list[SnagSummary]:
+        await self._require(
+            session, actor=actor_user_id, permission=PERM_QUALITY_READ, project_id=project_id
+        )
+        result = await session.execute(
+            select(SnagItem)
+            .where(SnagItem.project_id == project_id)
+            .where(SnagItem.archived_at.is_(None))
+            .order_by(SnagItem.created_at)
+        )
+        return [snag_summary(row) for row in result.scalars()]

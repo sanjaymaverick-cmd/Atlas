@@ -93,3 +93,38 @@ async def transition_obligation(
         target_status=body.target_status,
     )
     return ComplianceObligationResponse.from_dto(value)
+
+
+# -- reads ------------------------------------------------------------------
+# Added 2026-08-20; this router previously exposed writes only.
+
+
+@router.get(
+    "/projects/{project_id}/rera-registrations", response_model=list[ReraRegistrationResponse]
+)
+async def list_registrations(
+    project_id: UUID,
+    actor: Annotated[SessionContext, Depends(get_current_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    services: Annotated[ApiServices, Depends(get_services)],
+) -> list[ReraRegistrationResponse]:
+    rows = await services.compliance.list_registrations(
+        session, actor_user_id=actor.user_id, project_id=project_id
+    )
+    return [ReraRegistrationResponse.from_dto(row) for row in rows]
+
+
+@router.get(
+    "/projects/{project_id}/compliance-obligations",
+    response_model=list[ComplianceObligationResponse],
+)
+async def list_obligations(
+    project_id: UUID,
+    actor: Annotated[SessionContext, Depends(get_current_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    services: Annotated[ApiServices, Depends(get_services)],
+) -> list[ComplianceObligationResponse]:
+    rows = await services.compliance.list_obligations(
+        session, actor_user_id=actor.user_id, project_id=project_id
+    )
+    return [ComplianceObligationResponse.from_dto(row) for row in rows]

@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from atlas.modules.change_control.contracts import (
@@ -114,6 +115,9 @@ def discrepancy_summary(r: DiscrepancyCase) -> DiscrepancySummary:
         r.resolved_at,
         r.version,
     )
+
+
+PERM_READ = "change.read"
 
 
 class ChangeControlService:
@@ -577,3 +581,58 @@ class ChangeControlService:
             },
         )
         return discrepancy_summary(row)
+
+    # -- reads ------------------------------------------------------------
+    #
+    # Added 2026-08-20. This module previously published writes only, which
+    # left every change request, RFI, NCR and discrepancy case unreadable once
+    # created — see docs/production-readiness-todo.md. Reads are scoped to the
+    # project and exclude archived rows, matching Organization.list_projects.
+
+    async def list_changes(
+        self, s: AsyncSession, *, actor_user_id: UUID, project_id: UUID
+    ) -> list[ChangeSummary]:
+        await self._require(s, actor_user_id, PERM_READ, project_id)
+        result = await s.execute(
+            select(ChangeRequest)
+            .where(ChangeRequest.project_id == project_id)
+            .where(ChangeRequest.archived_at.is_(None))
+            .order_by(ChangeRequest.created_at)
+        )
+        return [change_summary(row) for row in result.scalars()]
+
+    async def list_rfis(
+        self, s: AsyncSession, *, actor_user_id: UUID, project_id: UUID
+    ) -> list[RfiSummary]:
+        await self._require(s, actor_user_id, PERM_READ, project_id)
+        result = await s.execute(
+            select(Rfi)
+            .where(Rfi.project_id == project_id)
+            .where(Rfi.archived_at.is_(None))
+            .order_by(Rfi.created_at)
+        )
+        return [rfi_summary(row) for row in result.scalars()]
+
+    async def list_ncrs(
+        self, s: AsyncSession, *, actor_user_id: UUID, project_id: UUID
+    ) -> list[NcrSummary]:
+        await self._require(s, actor_user_id, PERM_READ, project_id)
+        result = await s.execute(
+            select(Ncr)
+            .where(Ncr.project_id == project_id)
+            .where(Ncr.archived_at.is_(None))
+            .order_by(Ncr.created_at)
+        )
+        return [ncr_summary(row) for row in result.scalars()]
+
+    async def list_discrepancies(
+        self, s: AsyncSession, *, actor_user_id: UUID, project_id: UUID
+    ) -> list[DiscrepancySummary]:
+        await self._require(s, actor_user_id, PERM_READ, project_id)
+        result = await s.execute(
+            select(DiscrepancyCase)
+            .where(DiscrepancyCase.project_id == project_id)
+            .where(DiscrepancyCase.archived_at.is_(None))
+            .order_by(DiscrepancyCase.created_at)
+        )
+        return [discrepancy_summary(row) for row in result.scalars()]

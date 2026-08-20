@@ -220,3 +220,76 @@ async def transition_snag(
             session, actor_user_id=actor.user_id, snag_id=snag_id, target_status=body.target_status
         ),
     )
+
+
+# `response_model` takes a runtime value, but these schemas are created at
+# runtime by `response_model()` rather than declared as classes, so mypy cannot
+# read them as types — and `list[X]` is a type expression. Subscripting through
+# `__class_getitem__` builds the same object without writing a type expression,
+# which keeps the OpenAPI schema exact and strict mypy quiet.
+def _list_of(model: Any) -> Any:
+    return list.__class_getitem__(model)
+
+
+ScheduleListResponse = _list_of(ScheduleResponse)
+SiteDiaryListResponse = _list_of(SiteDiaryResponse)
+EhsListResponse = _list_of(EhsResponse)
+InspectionListResponse = _list_of(InspectionResponse)
+SnagListResponse = _list_of(SnagResponse)
+
+
+# -- reads ------------------------------------------------------------------
+# Added 2026-08-20; this router previously exposed writes only. The response
+# models here are built by `response_model`, so they are runtime values rather
+# than types — hence the `-> list[BaseModel]` annotations and the shared
+# `response` helper, matching the write routes above.
+
+
+@router.get("/projects/{project_id}/schedule-activities", response_model=ScheduleListResponse)
+async def list_activities(
+    project_id: UUID, actor: Actor, session: Db, services: Services
+) -> list[BaseModel]:
+    rows = await services.construction.list_activities(
+        session, actor_user_id=actor.user_id, project_id=project_id
+    )
+    return [response(ScheduleResponse, row) for row in rows]
+
+
+@router.get("/projects/{project_id}/site-diary", response_model=SiteDiaryListResponse)
+async def list_diary(
+    project_id: UUID, actor: Actor, session: Db, services: Services
+) -> list[BaseModel]:
+    rows = await services.construction.list_diary_entries(
+        session, actor_user_id=actor.user_id, project_id=project_id
+    )
+    return [response(SiteDiaryResponse, row) for row in rows]
+
+
+@router.get("/projects/{project_id}/ehs-incidents", response_model=EhsListResponse)
+async def list_ehs(
+    project_id: UUID, actor: Actor, session: Db, services: Services
+) -> list[BaseModel]:
+    rows = await services.construction.list_ehs_incidents(
+        session, actor_user_id=actor.user_id, project_id=project_id
+    )
+    return [response(EhsResponse, row) for row in rows]
+
+
+@router.get("/projects/{project_id}/inspections", response_model=InspectionListResponse)
+async def list_inspections(
+    project_id: UUID, actor: Actor, session: Db, services: Services
+) -> list[BaseModel]:
+    rows = await services.construction.list_inspections(
+        session, actor_user_id=actor.user_id, project_id=project_id
+    )
+    return [response(InspectionResponse, row) for row in rows]
+
+
+@router.get("/projects/{project_id}/snags", response_model=SnagListResponse)
+async def list_snags(
+    project_id: UUID, actor: Actor, session: Db, services: Services
+) -> list[BaseModel]:
+    rows = await services.construction.list_snags(
+        session, actor_user_id=actor.user_id, project_id=project_id
+    )
+    return [response(SnagResponse, row) for row in rows]

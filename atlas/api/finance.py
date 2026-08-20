@@ -98,3 +98,51 @@ async def review_reconciliation(
             data=body.to_dto(),
         )
     )
+
+
+# -- reads ------------------------------------------------------------------
+# Added 2026-08-20; this router previously exposed writes only.
+
+
+@router.get(
+    "/legal-entities/{legal_entity_id}/tally-imports", response_model=list[ImportBatchResponse]
+)
+async def list_import_batches(
+    legal_entity_id: UUID,
+    actor: Annotated[SessionContext, Depends(get_current_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    services: Annotated[ApiServices, Depends(get_services)],
+) -> list[ImportBatchResponse]:
+    rows = await services.finance.list_import_batches(
+        session, actor_user_id=actor.user_id, legal_entity_id=legal_entity_id
+    )
+    return [ImportBatchResponse.from_dto(row) for row in rows]
+
+
+@router.get("/tally-imports/{batch_id}/vouchers", response_model=list[VoucherResponse])
+async def list_vouchers(
+    batch_id: UUID,
+    actor: Annotated[SessionContext, Depends(get_current_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    services: Annotated[ApiServices, Depends(get_services)],
+) -> list[VoucherResponse]:
+    rows = await services.finance.list_vouchers(
+        session, actor_user_id=actor.user_id, batch_id=batch_id
+    )
+    return [VoucherResponse.from_dto(row) for row in rows]
+
+
+@router.get(
+    "/legal-entities/{legal_entity_id}/reconciliations",
+    response_model=list[ReconciliationResponse],
+)
+async def list_reconciliations(
+    legal_entity_id: UUID,
+    actor: Annotated[SessionContext, Depends(get_current_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    services: Annotated[ApiServices, Depends(get_services)],
+) -> list[ReconciliationResponse]:
+    rows = await services.finance.list_reconciliations(
+        session, actor_user_id=actor.user_id, legal_entity_id=legal_entity_id
+    )
+    return [ReconciliationResponse.from_dto(row) for row in rows]

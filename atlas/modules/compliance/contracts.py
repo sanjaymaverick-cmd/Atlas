@@ -45,3 +45,9 @@ class ComplianceContract(Protocol):
     async def transition_obligation(
         self, session: AsyncSession, *, actor_user_id: UUID, obligation_id: UUID, target_status: str
     ) -> ComplianceObligationSummary: ...
+    async def list_registrations(
+        self, session: AsyncSession, *, actor_user_id: UUID, project_id: UUID
+    ) -> list[ReraRegistrationSummary]: ...
+    async def list_obligations(
+        self, session: AsyncSession, *, actor_user_id: UUID, project_id: UUID
+    ) -> list[ComplianceObligationSummary]: ...

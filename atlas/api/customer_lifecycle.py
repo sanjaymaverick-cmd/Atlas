@@ -153,3 +153,46 @@ async def link_contract(
             contract_id=body.contract_id,
         )
     )
+
+
+# -- reads ------------------------------------------------------------------
+# Added 2026-08-20; this router previously exposed writes only.
+
+
+@router.get("/projects/{project_id}/bookings", response_model=list[BookingResponse])
+async def list_bookings(
+    project_id: UUID,
+    actor: Annotated[SessionContext, Depends(get_current_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    services: Annotated[ApiServices, Depends(get_services)],
+) -> list[BookingResponse]:
+    rows = await services.customer_lifecycle.list_bookings(
+        session, actor_user_id=actor.user_id, project_id=project_id
+    )
+    return [BookingResponse.from_dto(row) for row in rows]
+
+
+@router.get("/bookings/{booking_id}/payment-plans", response_model=list[PlanResponse])
+async def list_payment_plans(
+    booking_id: UUID,
+    actor: Annotated[SessionContext, Depends(get_current_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    services: Annotated[ApiServices, Depends(get_services)],
+) -> list[PlanResponse]:
+    rows = await services.customer_lifecycle.list_payment_plans(
+        session, actor_user_id=actor.user_id, booking_id=booking_id
+    )
+    return [PlanResponse.from_dto(row) for row in rows]
+
+
+@router.get("/bookings/{booking_id}/collections", response_model=list[CollectionResponse])
+async def list_collections(
+    booking_id: UUID,
+    actor: Annotated[SessionContext, Depends(get_current_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    services: Annotated[ApiServices, Depends(get_services)],
+) -> list[CollectionResponse]:
+    rows = await services.customer_lifecycle.list_collections(
+        session, actor_user_id=actor.user_id, booking_id=booking_id
+    )
+    return [CollectionResponse.from_dto(row) for row in rows]

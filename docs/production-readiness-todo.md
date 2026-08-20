@@ -161,6 +161,41 @@ instance. None was introduced by Phase 11; all predate it.
   lookup is the same accident waiting to happen, and the register's
   recommended service-level tests for Phases 3-10 should be taken seriously
   rather than deferred.
+- [x] RESOLVED 2026-08-20: **six modules published writes but no reads.**
+  Atlas exposed 104 POST endpoints against 11 GET, and change control,
+  compliance, construction/quality, customer lifecycle, finance and project
+  controls had no GET at all — every change request, RFI, NCR, snag, booking,
+  collection, reconciliation and quantity became unreadable the moment it was
+  written. Found while building the web client, which could not show a
+  register for any of them.
+
+  Added 22 list endpoints, taking the API from 11 GET to 33. All follow the
+  existing `Organization.list_projects` pattern: scoped authorisation through
+  `check_scoped_role`, archived rows excluded, ordered by their natural key.
+  Booking- and batch-scoped reads resolve their parent first and authorise
+  against *its* project or entity, so a caller cannot read another project's
+  payment history or another entity's ledger by guessing an id.
+
+  Seven new permission codes, granted per module rather than per endpoint:
+  `change.read`, `compliance.read`, `construction.read`, `quality.read`,
+  `customer.read`, `finance.read`, `project_controls.read`. **Worth an owner
+  review**: `construction.read` and `quality.read` are deliberately separate so
+  a scheduler can see the programme without seeing defect records, but the
+  other five are module-wide, which is coarser than the write permissions they
+  sit beside. If finer read scoping is wanted — say, collections readable
+  separately from bookings — it is much cheaper to split now than after roles
+  are assigned.
+
+  Covered by `tests/integration/test_module_reads.py`, which goes through the
+  services rather than around them: each read is checked for what it returns,
+  that it refuses an out-of-scope caller, and that it hides archived rows.
+  Note the material master is estate-wide and therefore needs a *global*
+  grant; an entity-scoped role is correctly refused.
+
+  Still no reads: individual detail endpoints (`GET /ncrs/{id}` and the like),
+  installments, registration and possession records, inspection templates,
+  material issuances, and the whole commercial module beyond budgets. The
+  registers were the blocking gap; these are the next increment.
 - [ ] BLOCKING, found 2026-08-20: **the Phase 10 dashboards return HTTP 500 on
   any freshly provisioned database, not stale or empty data.**
   `db/schema.sql` creates `reporting.mv_ceo_project_summary ... WITH NO DATA`,

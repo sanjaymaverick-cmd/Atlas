@@ -159,3 +159,69 @@ async def issue_material(
             session, actor_user_id=actor.user_id, receipt_id=receipt_id, data=body.to_dto()
         )
     )
+
+
+# -- reads ------------------------------------------------------------------
+# Added 2026-08-20; this router previously exposed writes only.
+
+
+@router.get("/projects/{project_id}/bim-imports", response_model=list[BimImportResponse])
+async def list_bim_imports(
+    project_id: UUID,
+    actor: Annotated[SessionContext, Depends(get_current_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    services: Annotated[ApiServices, Depends(get_services)],
+) -> list[BimImportResponse]:
+    rows = await services.project_controls.list_bim_imports(
+        session, actor_user_id=actor.user_id, project_id=project_id
+    )
+    return [BimImportResponse.from_dto(row) for row in rows]
+
+
+@router.get("/projects/{project_id}/cost-codes", response_model=list[CostCodeResponse])
+async def list_cost_codes(
+    project_id: UUID,
+    actor: Annotated[SessionContext, Depends(get_current_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    services: Annotated[ApiServices, Depends(get_services)],
+) -> list[CostCodeResponse]:
+    rows = await services.project_controls.list_cost_codes(
+        session, actor_user_id=actor.user_id, project_id=project_id
+    )
+    return [CostCodeResponse.from_dto(row) for row in rows]
+
+
+@router.get("/projects/{project_id}/quantity-items", response_model=list[QuantityResponse])
+async def list_quantities(
+    project_id: UUID,
+    actor: Annotated[SessionContext, Depends(get_current_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    services: Annotated[ApiServices, Depends(get_services)],
+) -> list[QuantityResponse]:
+    rows = await services.project_controls.list_quantities(
+        session, actor_user_id=actor.user_id, project_id=project_id
+    )
+    return [QuantityResponse.from_dto(row) for row in rows]
+
+
+@router.get("/projects/{project_id}/material-receipts", response_model=list[ReceiptResponse])
+async def list_receipts(
+    project_id: UUID,
+    actor: Annotated[SessionContext, Depends(get_current_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    services: Annotated[ApiServices, Depends(get_services)],
+) -> list[ReceiptResponse]:
+    rows = await services.project_controls.list_receipts(
+        session, actor_user_id=actor.user_id, project_id=project_id
+    )
+    return [ReceiptResponse.from_dto(row) for row in rows]
+
+
+@router.get("/materials", response_model=list[MaterialResponse])
+async def list_materials(
+    actor: Annotated[SessionContext, Depends(get_current_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    services: Annotated[ApiServices, Depends(get_services)],
+) -> list[MaterialResponse]:
+    rows = await services.project_controls.list_materials(session, actor_user_id=actor.user_id)
+    return [MaterialResponse.from_dto(row) for row in rows]

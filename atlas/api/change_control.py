@@ -145,3 +145,60 @@ async def transition_discrepancy(
             session, actor_user_id=actor.user_id, case_id=case_id, data=body.to_dto()
         )
     )
+
+
+# -- reads ------------------------------------------------------------------
+# Registers for the four change-control record types. Added 2026-08-20; this
+# router previously exposed writes only.
+
+
+@router.get("/projects/{project_id}/change-requests", response_model=list[ChangeResponse])
+async def list_changes(
+    project_id: UUID,
+    actor: Annotated[SessionContext, Depends(get_current_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    services: Annotated[ApiServices, Depends(get_services)],
+) -> list[ChangeResponse]:
+    rows = await services.change_control.list_changes(
+        session, actor_user_id=actor.user_id, project_id=project_id
+    )
+    return [ChangeResponse.from_dto(row) for row in rows]
+
+
+@router.get("/projects/{project_id}/rfis", response_model=list[RfiSummaryResponse])
+async def list_rfis(
+    project_id: UUID,
+    actor: Annotated[SessionContext, Depends(get_current_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    services: Annotated[ApiServices, Depends(get_services)],
+) -> list[RfiSummaryResponse]:
+    rows = await services.change_control.list_rfis(
+        session, actor_user_id=actor.user_id, project_id=project_id
+    )
+    return [RfiSummaryResponse.from_dto(row) for row in rows]
+
+
+@router.get("/projects/{project_id}/ncrs", response_model=list[NcrResponse])
+async def list_ncrs(
+    project_id: UUID,
+    actor: Annotated[SessionContext, Depends(get_current_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    services: Annotated[ApiServices, Depends(get_services)],
+) -> list[NcrResponse]:
+    rows = await services.change_control.list_ncrs(
+        session, actor_user_id=actor.user_id, project_id=project_id
+    )
+    return [NcrResponse.from_dto(row) for row in rows]
+
+
+@router.get("/projects/{project_id}/discrepancy-cases", response_model=list[DiscrepancyResponse])
+async def list_discrepancies(
+    project_id: UUID,
+    actor: Annotated[SessionContext, Depends(get_current_session)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    services: Annotated[ApiServices, Depends(get_services)],
+) -> list[DiscrepancyResponse]:
+    rows = await services.change_control.list_discrepancies(
+        session, actor_user_id=actor.user_id, project_id=project_id
+    )
+    return [DiscrepancyResponse.from_dto(row) for row in rows]

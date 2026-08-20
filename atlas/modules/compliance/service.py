@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -56,6 +57,9 @@ def obligation_summary(row: ComplianceObligation) -> ComplianceObligationSummary
         row.version,
         row.archived_at,
     )
+
+
+PERM_READ = "compliance.read"
 
 
 class ComplianceService:
@@ -251,3 +255,40 @@ class ComplianceService:
             after_state={"status": row.status, "version": row.version},
         )
         return obligation_summary(row)
+
+    # -- reads ------------------------------------------------------------
+    # Added 2026-08-20; this module previously published writes only.
+
+    async def list_registrations(
+        self, session: AsyncSession, *, actor_user_id: UUID, project_id: UUID
+    ) -> list[ReraRegistrationSummary]:
+        await self._require(
+            session,
+            actor_user_id=actor_user_id,
+            permission=PERM_READ,
+            project_id=project_id,
+        )
+        result = await session.execute(
+            select(ReraRegistration)
+            .where(ReraRegistration.project_id == project_id)
+            .where(ReraRegistration.archived_at.is_(None))
+            .order_by(ReraRegistration.created_at)
+        )
+        return [registration_summary(row) for row in result.scalars()]
+
+    async def list_obligations(
+        self, session: AsyncSession, *, actor_user_id: UUID, project_id: UUID
+    ) -> list[ComplianceObligationSummary]:
+        await self._require(
+            session,
+            actor_user_id=actor_user_id,
+            permission=PERM_READ,
+            project_id=project_id,
+        )
+        result = await session.execute(
+            select(ComplianceObligation)
+            .where(ComplianceObligation.project_id == project_id)
+            .where(ComplianceObligation.archived_at.is_(None))
+            .order_by(ComplianceObligation.created_at)
+        )
+        return [obligation_summary(row) for row in result.scalars()]
