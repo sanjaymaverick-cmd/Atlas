@@ -1,21 +1,25 @@
 import { useState } from "react";
 
 import { ActionForm } from "../components/ActionForm";
+import { RegisterTable } from "../components/RegisterTable";
 import { ScopeBar } from "../components/ScopeBar";
 import { useScope } from "../context/ScopeContext";
 import { CATALOG, type Workflow } from "../workflows/catalog";
+import { REGISTERS } from "../workflows/registers";
 
-// Every write the API offers for the modules that expose no reads.
-//
-// This screen is shaped by an API limitation, and says so plainly rather than
-// papering over it: six of Atlas's modules have no GET endpoints, so there is
-// no register to browse and no row to click. Actions that target an existing
-// record therefore ask for its UUID.
+// Registers and operations for the six modules that were write-only until the
+// read endpoints landed on 2026-08-20. Each phase shows what exists, then what
+// can be done to it.
 
 export function WorkflowsScreen() {
   const { legalEntityId, projectId } = useScope();
   const [groupIndex, setGroupIndex] = useState(0);
+  const [showActions, setShowActions] = useState(false);
   const group = CATALOG[groupIndex];
+  const scope = {
+    entity: encodeURIComponent(legalEntityId.trim()),
+    project: encodeURIComponent(projectId),
+  };
 
   function blockedReason(workflow: Workflow): string | null {
     if (workflow.scope === "entity" && !legalEntityId.trim()) {
@@ -27,22 +31,16 @@ export function WorkflowsScreen() {
     return null;
   }
 
+  const registers = group ? (REGISTERS[group.phase] ?? []) : [];
+
   return (
     <section className="stack">
       <header className="page-head">
         <div>
           <h2>Workflows</h2>
-          <p className="muted">Operations for the modules that expose no read endpoints.</p>
+          <p className="muted">Registers and operations, by phase.</p>
         </div>
       </header>
-
-      <p className="banner banner-info">
-        These modules — change control, compliance, construction and quality, customer lifecycle,
-        finance and project controls — publish writes but no reads. Atlas exposes 104 POST
-        endpoints against 11 GET, and none of the GETs belong here, so there is nothing to build a
-        register or a detail page from. Actions on an existing record ask for its ID because the
-        API offers no way to list one.
-      </p>
 
       <ScopeBar requireProject />
 
@@ -53,7 +51,10 @@ export function WorkflowsScreen() {
             role="tab"
             aria-selected={index === groupIndex}
             className={index === groupIndex ? "tab tab-active" : "tab"}
-            onClick={() => setGroupIndex(index)}
+            onClick={() => {
+              setGroupIndex(index);
+              setShowActions(false);
+            }}
           >
             {entry.phase} · {entry.title}
           </button>
@@ -63,25 +64,44 @@ export function WorkflowsScreen() {
       {group && (
         <>
           <p className="muted">{group.blurb}</p>
-          <div className="stack">
-            {group.workflows.map((workflow) => (
-              <ActionForm
-                key={workflow.key}
-                title={workflow.title}
-                {...(workflow.description ? { description: workflow.description } : {})}
-                path={(values) =>
-                  workflow.path(
-                    { entity: encodeURIComponent(legalEntityId.trim()), project: encodeURIComponent(projectId) },
-                    values,
-                  )
-                }
-                fields={workflow.fields}
-                {...(workflow.pathFields ? { pathFields: workflow.pathFields } : {})}
-                submitLabel={workflow.submitLabel}
-                disabledReason={blockedReason(workflow)}
-              />
-            ))}
+
+          {registers.map((register) => (
+            <RegisterTable
+              key={register.key}
+              register={register}
+              scope={scope}
+              blocked={null}
+            />
+          ))}
+
+          <div className="page-head">
+            <h3>Operations</h3>
+            <button className="btn" onClick={() => setShowActions((open) => !open)}>
+              {showActions ? "Hide" : `Show ${group.workflows.length} operations`}
+            </button>
           </div>
+
+          {showActions && (
+            <div className="stack">
+              <p className="banner banner-info">
+                Actions that target an existing record still ask for its ID. The registers above
+                list them, and detail endpoints — <code>GET /ncrs/{"{id}"}</code> and the like —
+                do not exist yet, so a row cannot yet be clicked through to its own page.
+              </p>
+              {group.workflows.map((workflow) => (
+                <ActionForm
+                  key={workflow.key}
+                  title={workflow.title}
+                  {...(workflow.description ? { description: workflow.description } : {})}
+                  path={(values) => workflow.path(scope, values)}
+                  fields={workflow.fields}
+                  {...(workflow.pathFields ? { pathFields: workflow.pathFields } : {})}
+                  submitLabel={workflow.submitLabel}
+                  disabledReason={blockedReason(workflow)}
+                />
+              ))}
+            </div>
+          )}
         </>
       )}
     </section>

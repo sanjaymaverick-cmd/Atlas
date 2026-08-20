@@ -4,7 +4,7 @@ import { ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { CeremonyAbortedError, passkeysSupported, registerPasskey } from "../auth/passkey";
 
-type Mode = "sign-in" | "enrol";
+type Mode = "sign-in" | "enrol" | "token";
 
 function describe(error: unknown): string {
   if (error instanceof CeremonyAbortedError) return error.message;
@@ -21,13 +21,14 @@ function describe(error: unknown): string {
 }
 
 export function LoginScreen() {
-  const { signIn } = useAuth();
+  const { signIn, useDevelopmentToken } = useAuth();
   const [mode, setMode] = useState<Mode>("sign-in");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [userId, setUserId] = useState("");
   const [deviceName, setDeviceName] = useState("");
+  const [devToken, setDevToken] = useState("");
 
   const supported = passkeysSupported();
 
@@ -103,6 +104,18 @@ export function LoginScreen() {
           >
             Enrol a device
           </button>
+          <button
+            role="tab"
+            aria-selected={mode === "token"}
+            className={mode === "token" ? "tab tab-active" : "tab"}
+            onClick={() => {
+              setMode("token");
+              setError(null);
+              setNotice(null);
+            }}
+          >
+            Dev token
+          </button>
         </div>
 
         {error && <p className="banner banner-error">{error}</p>}
@@ -121,6 +134,37 @@ export function LoginScreen() {
               {busy ? "Waiting for your passkey…" : "Sign in with a passkey"}
             </button>
           </>
+        ) : mode === "token" ? (
+          <form
+            className="stack"
+            onSubmit={(event) => {
+              event.preventDefault();
+              setError(null);
+              if (!devToken.trim()) {
+                setError("Paste the token printed by scripts/dev_seed.py.");
+                return;
+              }
+              useDevelopmentToken(devToken);
+            }}
+          >
+            <p className="banner banner-info">
+              For local development only. A passkey cannot be scripted, so
+              <code> scripts/dev_seed.py </code> writes the rows a completed ceremony would have
+              written and prints the resulting session token. The token is opaque, short-lived
+              and revocable server-side, exactly like one earned through a real ceremony.
+            </p>
+            <label className="field">
+              <span>Session token</span>
+              <input
+                value={devToken}
+                onChange={(event) => setDevToken(event.target.value)}
+                placeholder="Printed by scripts/dev_seed.py"
+                spellCheck={false}
+                autoComplete="off"
+              />
+            </label>
+            <button className="btn btn-primary btn-block">Use this token</button>
+          </form>
         ) : (
           <form onSubmit={handleEnrol} className="stack">
             <p className="muted">
