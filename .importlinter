@@ -1,0 +1,452 @@
+# Module boundary enforcement — Blueprint §22 ("each module exposes a documented
+# interface; other modules integrate against that interface, not against internal
+# tables"). These contracts are what make that requirement mechanical rather than
+# a code-review convention: a PR that reaches into another module's internals
+# fails CI.
+#
+# Run with: lint-imports
+
+[importlinter]
+root_packages =
+    atlas
+include_external_packages = False
+
+
+# ---------------------------------------------------------------------------
+# 1. Layering. Lower layers must not know about higher ones.
+#
+#    owner_console  — aggregates the admin surface across modules
+#    modules        — business modules (identity, organization, audit)
+#    platform       — cross-cutting infra: db, secrets, kms, audit writer,
+#                     access control. Holds no business logic and must never
+#                     import a business module.
+# ---------------------------------------------------------------------------
+[importlinter:contract:layers]
+name = Layered architecture (owner_console > modules > platform)
+type = layers
+layers =
+    atlas.owner_console
+    atlas.modules
+    atlas.platform
+
+
+# ---------------------------------------------------------------------------
+# 2. Module internals are private.
+#
+#    Everything outside a module may import that module's `contracts` and
+#    `schemas` (its published interface and DTOs) and nothing else. In
+#    particular `models` (ORM mappings onto the tables) and `repository`
+#    (raw queries) are unreachable from outside — that is the concrete
+#    mechanism behind "not against internal tables".
+#
+#    allow_indirect_imports is set on each: what must never happen is a module
+#    reaching into another's internals *directly*. Calling the published
+#    service, which then uses its own repository, is the boundary working as
+#    intended — without this, every legitimate use of a module's public entry
+#    point would be reported as a violation of its privacy.
+# ---------------------------------------------------------------------------
+[importlinter:contract:identity-private]
+name = Identity internals are private to the identity module
+type = forbidden
+source_modules =
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.owner_console
+forbidden_modules =
+    atlas.modules.identity.models
+    atlas.modules.identity.repository
+    atlas.modules.identity.webauthn_adapter
+allow_indirect_imports = true
+
+[importlinter:contract:organization-private]
+name = Organization internals are private to the organization module
+type = forbidden
+source_modules =
+    atlas.modules.identity
+    atlas.modules.audit
+    atlas.owner_console
+forbidden_modules =
+    atlas.modules.organization.models
+    atlas.modules.organization.repository
+allow_indirect_imports = true
+
+[importlinter:contract:audit-private]
+name = Audit internals are private to the audit module
+type = forbidden
+source_modules =
+    atlas.modules.identity
+    atlas.modules.organization
+    atlas.owner_console
+forbidden_modules =
+    atlas.modules.audit.models
+    atlas.modules.audit.repository
+allow_indirect_imports = true
+
+[importlinter:contract:documents-private]
+name = Documents internals are private to the documents module
+type = forbidden
+source_modules =
+    atlas.modules.identity
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.owner_console
+forbidden_modules =
+    atlas.modules.documents.models
+    atlas.modules.documents.service
+allow_indirect_imports = true
+
+
+[importlinter:contract:phase3-private]
+name = Phase 3 internals are private to their modules
+type = forbidden
+source_modules =
+    atlas.modules.identity
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.documents
+    atlas.owner_console
+forbidden_modules =
+    atlas.modules.land.models
+    atlas.modules.land.service
+    atlas.modules.compliance.models
+    atlas.modules.compliance.service
+allow_indirect_imports = true
+
+
+# ---------------------------------------------------------------------------
+# 3. Business modules are independent of one another.
+#
+#    Identity is the base module: Organization and Audit may depend on it
+#    (through its contracts only, per contract 2), but Identity must not
+#    depend on them. This keeps the dependency graph acyclic so each module
+#    stays separately testable.
+# ---------------------------------------------------------------------------
+[importlinter:contract:identity-independent]
+name = Identity does not depend on other business modules
+type = forbidden
+source_modules =
+    atlas.modules.identity
+forbidden_modules =
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.documents
+    atlas.modules.land
+    atlas.modules.compliance
+    atlas.modules.customer_lifecycle
+
+[importlinter:contract:documents-independent]
+name = Documents depends only on Identity contracts and platform services
+type = forbidden
+source_modules =
+    atlas.modules.documents
+forbidden_modules =
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.land
+    atlas.modules.compliance
+    atlas.modules.customer_lifecycle
+
+[importlinter:contract:phase3-independent]
+name = Phase 3 depends only on Identity contracts and platform services
+type = forbidden
+source_modules =
+    atlas.modules.land
+    atlas.modules.compliance
+forbidden_modules =
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.documents.models
+    atlas.modules.documents.service
+    atlas.modules.customer_lifecycle
+
+[importlinter:contract:commercial-private]
+name = Commercial internals are private to the commercial module
+type = forbidden
+source_modules =
+    atlas.modules.identity
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.documents
+    atlas.modules.land
+    atlas.modules.compliance
+    atlas.owner_console
+forbidden_modules =
+    atlas.modules.commercial.models
+    atlas.modules.commercial.service
+allow_indirect_imports = true
+
+[importlinter:contract:commercial-independent]
+name = Commercial depends only on Identity contracts and platform services
+type = forbidden
+source_modules =
+    atlas.modules.commercial
+forbidden_modules =
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.documents.models
+    atlas.modules.documents.service
+    atlas.modules.land
+    atlas.modules.compliance
+    atlas.modules.customer_lifecycle
+
+[importlinter:contract:construction-private]
+name = Construction internals are private to the construction module
+type = forbidden
+source_modules =
+    atlas.modules.identity
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.documents
+    atlas.modules.land
+    atlas.modules.compliance
+    atlas.modules.commercial
+    atlas.owner_console
+forbidden_modules =
+    atlas.modules.construction.models
+    atlas.modules.construction.service
+allow_indirect_imports = true
+
+[importlinter:contract:construction-independent]
+name = Construction depends only on Identity contracts and platform services
+type = forbidden
+source_modules =
+    atlas.modules.construction
+forbidden_modules =
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.documents.models
+    atlas.modules.documents.service
+    atlas.modules.land
+    atlas.modules.compliance
+    atlas.modules.commercial
+    atlas.modules.customer_lifecycle
+
+[importlinter:contract:project-controls-private]
+name = Project controls internals are private to the project controls module
+type = forbidden
+source_modules =
+    atlas.modules.identity
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.documents
+    atlas.modules.land
+    atlas.modules.compliance
+    atlas.modules.commercial
+    atlas.modules.construction
+    atlas.owner_console
+forbidden_modules =
+    atlas.modules.project_controls.models
+    atlas.modules.project_controls.service
+allow_indirect_imports = true
+
+[importlinter:contract:project-controls-independent]
+name = Project controls depend only on Identity contracts and platform services
+type = forbidden
+source_modules =
+    atlas.modules.project_controls
+forbidden_modules =
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.documents.models
+    atlas.modules.documents.service
+    atlas.modules.land
+    atlas.modules.compliance
+    atlas.modules.commercial
+    atlas.modules.construction
+    atlas.modules.customer_lifecycle
+
+[importlinter:contract:change-control-private]
+name = Change control internals are private to the change control module
+type = forbidden
+source_modules =
+    atlas.modules.identity
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.documents
+    atlas.modules.land
+    atlas.modules.compliance
+    atlas.modules.commercial
+    atlas.modules.construction
+    atlas.modules.project_controls
+    atlas.owner_console
+forbidden_modules =
+    atlas.modules.change_control.models
+    atlas.modules.change_control.service
+allow_indirect_imports = true
+
+[importlinter:contract:change-control-independent]
+name = Change control depends only on Identity contracts and platform services
+type = forbidden
+source_modules =
+    atlas.modules.change_control
+forbidden_modules =
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.documents.models
+    atlas.modules.documents.service
+    atlas.modules.land
+    atlas.modules.compliance
+    atlas.modules.commercial
+    atlas.modules.construction
+    atlas.modules.project_controls
+    atlas.modules.customer_lifecycle
+
+[importlinter:contract:customer-lifecycle-private]
+name = Customer lifecycle internals are private to the customer lifecycle module
+type = forbidden
+source_modules =
+    atlas.modules.identity
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.documents
+    atlas.modules.land
+    atlas.modules.compliance
+    atlas.modules.commercial
+    atlas.modules.construction
+    atlas.modules.project_controls
+    atlas.modules.change_control
+    atlas.owner_console
+forbidden_modules =
+    atlas.modules.customer_lifecycle.models
+    atlas.modules.customer_lifecycle.service
+allow_indirect_imports = true
+
+[importlinter:contract:customer-lifecycle-independent]
+name = Customer lifecycle uses only published Organization and Commercial contracts
+type = forbidden
+source_modules =
+    atlas.modules.customer_lifecycle
+forbidden_modules =
+    atlas.modules.organization.models
+    atlas.modules.organization.repository
+    atlas.modules.organization.service
+    atlas.modules.commercial.models
+    atlas.modules.commercial.service
+    atlas.modules.documents.models
+    atlas.modules.documents.service
+    atlas.modules.land
+    atlas.modules.compliance
+    atlas.modules.construction
+    atlas.modules.project_controls
+    atlas.modules.change_control
+
+[importlinter:contract:finance-private]
+name = Finance internals are private to the finance module
+type = forbidden
+source_modules =
+    atlas.modules.identity
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.documents
+    atlas.modules.land
+    atlas.modules.compliance
+    atlas.modules.commercial
+    atlas.modules.construction
+    atlas.modules.project_controls
+    atlas.modules.change_control
+    atlas.modules.customer_lifecycle
+    atlas.owner_console
+forbidden_modules =
+    atlas.modules.finance.models
+    atlas.modules.finance.service
+allow_indirect_imports = true
+
+[importlinter:contract:finance-independent]
+name = Finance depends only on Identity contracts and platform services
+type = forbidden
+source_modules =
+    atlas.modules.finance
+forbidden_modules =
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.documents
+    atlas.modules.land
+    atlas.modules.compliance
+    atlas.modules.commercial
+    atlas.modules.construction
+    atlas.modules.project_controls
+    atlas.modules.change_control
+    atlas.modules.customer_lifecycle
+
+[importlinter:contract:reporting-private]
+name = Reporting internals are private to the reporting module
+type = forbidden
+source_modules =
+    atlas.modules.identity
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.documents
+    atlas.modules.land
+    atlas.modules.compliance
+    atlas.modules.commercial
+    atlas.modules.construction
+    atlas.modules.project_controls
+    atlas.modules.change_control
+    atlas.modules.customer_lifecycle
+    atlas.modules.finance
+    atlas.owner_console
+forbidden_modules =
+    atlas.modules.reporting.models
+    atlas.modules.reporting.service
+allow_indirect_imports = true
+
+[importlinter:contract:reporting-independent]
+name = Reporting depends only on Identity contracts and platform services
+type = forbidden
+source_modules =
+    atlas.modules.reporting
+forbidden_modules =
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.documents
+    atlas.modules.land
+    atlas.modules.compliance
+    atlas.modules.commercial
+    atlas.modules.construction
+    atlas.modules.project_controls
+    atlas.modules.change_control
+    atlas.modules.customer_lifecycle
+    atlas.modules.finance
+
+[importlinter:contract:ai-assistant-private]
+name = AI assistant internals are private to the AI assistant module
+type = forbidden
+source_modules =
+    atlas.modules.identity
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.documents
+    atlas.modules.land
+    atlas.modules.compliance
+    atlas.modules.commercial
+    atlas.modules.construction
+    atlas.modules.project_controls
+    atlas.modules.change_control
+    atlas.modules.customer_lifecycle
+    atlas.modules.finance
+    atlas.modules.reporting
+    atlas.owner_console
+forbidden_modules =
+    atlas.modules.ai_assistant.models
+    atlas.modules.ai_assistant.service
+    atlas.modules.ai_assistant.provider
+allow_indirect_imports = true
+
+[importlinter:contract:ai-assistant-independent]
+name = AI assistant depends only on Identity contracts and platform services
+type = forbidden
+source_modules =
+    atlas.modules.ai_assistant
+forbidden_modules =
+    atlas.modules.organization
+    atlas.modules.audit
+    atlas.modules.documents
+    atlas.modules.land
+    atlas.modules.compliance
+    atlas.modules.commercial
+    atlas.modules.construction
+    atlas.modules.project_controls
+    atlas.modules.change_control
+    atlas.modules.customer_lifecycle
+    atlas.modules.finance
+    atlas.modules.reporting

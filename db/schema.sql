@@ -81,6 +81,9 @@ CREATE TABLE identity.devices (
   device_name         TEXT,
   passkey_credential_id TEXT NOT NULL UNIQUE,
   public_key          TEXT NOT NULL,
+  -- WebAuthn signature counter. Must increase on every assertion; a counter
+  -- that stalls or goes backwards indicates a cloned authenticator.
+  sign_counter        BIGINT NOT NULL DEFAULT 0,
   trust_level         TEXT NOT NULL DEFAULT 'standard' CHECK (trust_level IN ('standard','elevated')),
   status              TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('pending_approval','active','revoked')),
   enrolled_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -97,10 +100,31 @@ CREATE TABLE identity.sessions (
   session_token_hash TEXT NOT NULL,
   risk_score       NUMERIC(5,2) DEFAULT 0,
   step_up_verified BOOLEAN NOT NULL DEFAULT false,
+  -- When step-up was last satisfied. Without this the boolean above never
+  -- decays, so one step-up would silently authorise every later sensitive
+  -- action for the life of the session. Freshness policy lives in
+  -- atlas/modules/identity/step_up.py.
+  step_up_verified_at TIMESTAMPTZ,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   expires_at       TIMESTAMPTZ NOT NULL,
   revoked_at       TIMESTAMPTZ
 );
+
+-- One-time server-side WebAuthn ceremony state. Challenges are short-lived,
+-- consumed under a row lock, and contain no credential or session secret.
+CREATE TABLE identity.webauthn_challenges (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         UUID REFERENCES identity.users(id),
+  ceremony_type   TEXT NOT NULL CHECK (ceremony_type IN ('registration','authentication')),
+  challenge       TEXT NOT NULL,
+  expires_at      TIMESTAMPTZ NOT NULL,
+  used_at         TIMESTAMPTZ,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_webauthn_challenges_expires
+  ON identity.webauthn_challenges(expires_at)
+  WHERE used_at IS NULL;
 
 -- Blueprint §3.2: break-glass secondary admin for the single-owner-console risk.
 CREATE TABLE identity.break_glass_credentials (
@@ -239,6 +263,91 @@ CREATE INDEX idx_units_floor ON organization.units(floor_id);
 CREATE INDEX idx_units_status ON organization.units(status);
 
 -- =====================================================================
+-- SCHEMA: documents   (Blueprint §4, §13 Document Engine)
+-- =====================================================================
+CREATE SCHEMA IF NOT EXISTS documents;
+
+CREATE TABLE documents.documents (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id     UUID NOT NULL REFERENCES organization.projects(id),
+  building_id    UUID REFERENCES organization.buildings(id),
+  floor_id       UUID REFERENCES organization.floors(id),
+  unit_id        UUID REFERENCES organization.units(id),
+  discipline     TEXT,          -- architectural, structural, MEP, etc.
+  drawing_number TEXT,
+  document_type  TEXT,
+  classification TEXT NOT NULL DEFAULT 'internal' CHECK (classification IN ('public','internal','confidential','restricted')),
+  status         TEXT NOT NULL DEFAULT 'uploaded'
+    CHECK (status IN ('uploaded','virus_scanned','classified','under_review','approved','issued','superseded','archived')),
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by     UUID REFERENCES identity.users(id),
+  updated_by     UUID REFERENCES identity.users(id),
+  version        INTEGER NOT NULL DEFAULT 1,
+  archived_at    TIMESTAMPTZ
+);
+
+CREATE TABLE documents.document_versions (
+  id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  document_id             UUID NOT NULL REFERENCES documents.documents(id),
+  revision_code           TEXT NOT NULL,
+  issue_purpose           TEXT,
+  issue_date              DATE,
+  author_id               UUID REFERENCES identity.users(id),
+  reviewer_id             UUID REFERENCES identity.users(id),
+  approver_id             UUID REFERENCES identity.users(id),
+  superseded_version_id   UUID REFERENCES documents.document_versions(id),
+  related_change_request_id UUID,   -- FK added once construction.change_requests exists (Phase 7)
+  object_storage_key      TEXT NOT NULL UNIQUE,
+  checksum_sha256         TEXT NOT NULL CHECK (checksum_sha256 ~ '^[0-9a-f]{64}$'),
+  status                  TEXT NOT NULL DEFAULT 'draft'
+    CHECK (status IN (
+      'draft','virus_scanned','quarantined','under_review','approved','issued','superseded'
+    )),
+  created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (document_id, revision_code)
+);
+
+CREATE INDEX idx_documents_project ON documents.documents(project_id);
+CREATE INDEX idx_document_versions_document ON documents.document_versions(document_id);
+
+CREATE TABLE documents.preview_grants (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  document_version_id UUID NOT NULL REFERENCES documents.document_versions(id),
+  session_id        UUID NOT NULL REFERENCES identity.sessions(id),
+  created_by        UUID NOT NULL REFERENCES identity.users(id),
+  token_hash        TEXT NOT NULL UNIQUE,
+  watermark_text    TEXT NOT NULL,
+  expires_at        TIMESTAMPTZ NOT NULL,
+  revoked_at        TIMESTAMPTZ,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE documents.export_requests (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  document_version_id UUID NOT NULL REFERENCES documents.document_versions(id),
+  requested_by      UUID NOT NULL REFERENCES identity.users(id),
+  approved_by       UUID REFERENCES identity.users(id),
+  reason            TEXT NOT NULL,
+  decision_reason   TEXT,
+  status            TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending','approved','rejected','expired','downloaded')),
+  expires_at        TIMESTAMPTZ,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  version           INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE INDEX idx_preview_grants_expiry
+  ON documents.preview_grants(expires_at) WHERE revoked_at IS NULL;
+CREATE INDEX idx_export_requests_revision
+  ON documents.export_requests(document_version_id, status);
+CREATE UNIQUE INDEX uq_export_requests_pending_requester
+  ON documents.export_requests(document_version_id, requested_by)
+  WHERE status = 'pending';
+
+-- =====================================================================
 -- SCHEMA: land   (Blueprint §4)
 -- =====================================================================
 CREATE SCHEMA IF NOT EXISTS land;
@@ -273,7 +382,28 @@ CREATE TABLE land.land_legal_approvals (
   valid_to        DATE,
   status          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','applied','approved','rejected','expired')),
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by      UUID REFERENCES identity.users(id),
+  updated_by      UUID REFERENCES identity.users(id),
+  version         INTEGER NOT NULL DEFAULT 1,
+  archived_at     TIMESTAMPTZ
+);
+
+CREATE TABLE land.due_diligence_items (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  land_parcel_id  UUID NOT NULL REFERENCES land.land_parcels(id),
+  category        TEXT NOT NULL,
+  title           TEXT NOT NULL,
+  result          TEXT NOT NULL DEFAULT 'pending'
+    CHECK (result IN ('pending','clear','issue','waived')),
+  evidence_document_id UUID REFERENCES documents.documents(id),
+  notes           TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by      UUID REFERENCES identity.users(id),
+  updated_by      UUID REFERENCES identity.users(id),
+  version         INTEGER NOT NULL DEFAULT 1,
+  archived_at     TIMESTAMPTZ
 );
 
 -- Loans / EMI / PDCs against land or project financing.
@@ -287,8 +417,35 @@ CREATE TABLE land.loan_obligations (
   emi_due_day     INT,
   status          TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','closed','defaulted')),
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by      UUID REFERENCES identity.users(id),
+  updated_by      UUID REFERENCES identity.users(id),
+  version         INTEGER NOT NULL DEFAULT 1,
+  archived_at     TIMESTAMPTZ
 );
+
+CREATE TABLE land.loan_installments (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  loan_obligation_id UUID NOT NULL REFERENCES land.loan_obligations(id),
+  due_date        DATE NOT NULL,
+  amount          NUMERIC(14,2) NOT NULL CHECK (amount >= 0),
+  instrument_type TEXT NOT NULL DEFAULT 'emi'
+    CHECK (instrument_type IN ('emi','pdc','other')),
+  reference_number TEXT,
+  status          TEXT NOT NULL DEFAULT 'scheduled'
+    CHECK (status IN ('scheduled','paid','bounced','waived','overdue')),
+  paid_at         TIMESTAMPTZ,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by      UUID REFERENCES identity.users(id),
+  updated_by      UUID REFERENCES identity.users(id),
+  version         INTEGER NOT NULL DEFAULT 1,
+  archived_at     TIMESTAMPTZ,
+  UNIQUE (loan_obligation_id, due_date, instrument_type)
+);
+
+CREATE INDEX idx_due_diligence_parcel ON land.due_diligence_items(land_parcel_id);
+CREATE INDEX idx_loan_installments_due ON land.loan_installments(due_date, status);
 
 -- =====================================================================
 -- SCHEMA: compliance   (Blueprint §4)
@@ -303,7 +460,12 @@ CREATE TABLE compliance.rera_registrations (
   valid_to          DATE,
   status            TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','lapsed','revoked')),
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by        UUID REFERENCES identity.users(id),
+  updated_by        UUID REFERENCES identity.users(id),
+  version           INTEGER NOT NULL DEFAULT 1,
+  archived_at       TIMESTAMPTZ,
+  UNIQUE (registration_number)
 );
 
 CREATE TABLE compliance.compliance_obligations (
@@ -316,52 +478,12 @@ CREATE TABLE compliance.compliance_obligations (
   amount          NUMERIC(14,2),
   status          TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','paid','waived','overdue')),
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by      UUID REFERENCES identity.users(id),
+  updated_by      UUID REFERENCES identity.users(id),
+  version         INTEGER NOT NULL DEFAULT 1,
+  archived_at     TIMESTAMPTZ
 );
-
--- =====================================================================
--- SCHEMA: documents   (Blueprint §4, §13 Document Engine)
--- =====================================================================
-CREATE SCHEMA IF NOT EXISTS documents;
-
-CREATE TABLE documents.documents (
-  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id     UUID REFERENCES organization.projects(id),
-  building_id    UUID REFERENCES organization.buildings(id),
-  floor_id       UUID REFERENCES organization.floors(id),
-  unit_id        UUID REFERENCES organization.units(id),
-  discipline     TEXT,          -- architectural, structural, MEP, etc.
-  drawing_number TEXT,
-  document_type  TEXT,
-  classification TEXT NOT NULL DEFAULT 'internal' CHECK (classification IN ('public','internal','confidential','restricted')),
-  status         TEXT NOT NULL DEFAULT 'uploaded'
-    CHECK (status IN ('uploaded','virus_scanned','classified','under_review','approved','issued','superseded','archived')),
-  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-  created_by     UUID REFERENCES identity.users(id),
-  archived_at    TIMESTAMPTZ
-);
-
-CREATE TABLE documents.document_versions (
-  id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  document_id             UUID NOT NULL REFERENCES documents.documents(id),
-  revision_code           TEXT NOT NULL,
-  issue_purpose           TEXT,
-  issue_date              DATE,
-  author_id               UUID REFERENCES identity.users(id),
-  reviewer_id             UUID REFERENCES identity.users(id),
-  approver_id             UUID REFERENCES identity.users(id),
-  superseded_version_id   UUID REFERENCES documents.document_versions(id),
-  related_change_request_id UUID,   -- FK added once construction.change_requests exists (Phase 7)
-  object_storage_key      TEXT NOT NULL,
-  checksum_sha256         TEXT,
-  status                  TEXT NOT NULL DEFAULT 'draft',
-  created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX idx_documents_project ON documents.documents(project_id);
-CREATE INDEX idx_document_versions_document ON documents.document_versions(document_id);
 
 -- =====================================================================
 -- SCHEMA: design   (Blueprint §14 BIM Integration)
@@ -372,11 +494,16 @@ CREATE TABLE design.bim_imports (
   id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id             UUID NOT NULL REFERENCES organization.projects(id),
   source_file_reference  TEXT NOT NULL,
+  source_document_id     UUID REFERENCES documents.documents(id),
   import_status          TEXT NOT NULL DEFAULT 'received' CHECK (import_status IN ('received','validating','validated','rejected','imported')),
   validated_at           TIMESTAMPTZ,
   validated_by           UUID REFERENCES identity.users(id),
   created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by             UUID REFERENCES identity.users(id),
+  updated_by             UUID REFERENCES identity.users(id),
+  version                INTEGER NOT NULL DEFAULT 1,
+  archived_at            TIMESTAMPTZ
 );
 
 CREATE TABLE design.bim_objects (
@@ -389,7 +516,10 @@ CREATE TABLE design.bim_objects (
   floor_id        UUID REFERENCES organization.floors(id),
   unit_id         UUID REFERENCES organization.units(id),
   room_reference  TEXT,
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by      UUID REFERENCES identity.users(id),
+  archived_at     TIMESTAMPTZ,
+  UNIQUE (bim_import_id, ifc_guid)
 );
 
 -- =====================================================================
@@ -405,6 +535,12 @@ CREATE TABLE quantities.cost_codes (
   wbs_level        INT NOT NULL DEFAULT 1,
   parent_cost_code_id UUID REFERENCES quantities.cost_codes(id),
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by       UUID REFERENCES identity.users(id),
+  updated_by       UUID REFERENCES identity.users(id),
+  version          INTEGER NOT NULL DEFAULT 1,
+  archived_at      TIMESTAMPTZ,
+  CHECK (wbs_level >= 1),
   UNIQUE (project_id, code)
 );
 
@@ -422,7 +558,16 @@ CREATE TABLE quantities.quantity_items (
   status                 TEXT NOT NULL DEFAULT 'calculated'
     CHECK (status IN ('calculated','submitted','within_tolerance','discrepancy','under_review','approved')),
   created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by             UUID REFERENCES identity.users(id),
+  updated_by             UUID REFERENCES identity.users(id),
+  version                INTEGER NOT NULL DEFAULT 1,
+  archived_at            TIMESTAMPTZ,
+  CHECK (calculated_quantity IS NULL OR calculated_quantity >= 0),
+  CHECK (verified_quantity IS NULL OR verified_quantity >= 0),
+  CHECK (final_approved_quantity IS NULL OR final_approved_quantity >= 0),
+  CHECK (tolerance_pct BETWEEN 0 AND 100),
+  UNIQUE (id, project_id)
 );
 
 -- =====================================================================
@@ -438,7 +583,12 @@ CREATE TABLE budget.budgets (
   status          TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','submitted','approved','revised')),
   approved_at     TIMESTAMPTZ,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by      UUID REFERENCES identity.users(id),
+  updated_by      UUID REFERENCES identity.users(id),
+  version         INTEGER NOT NULL DEFAULT 1,
+  archived_at     TIMESTAMPTZ,
+  CHECK (total_amount >= 0)
 );
 
 CREATE TABLE budget.budget_lines (
@@ -451,7 +601,12 @@ CREATE TABLE budget.budget_lines (
   actual_amount    NUMERIC(16,2) NOT NULL DEFAULT 0,
   status           TEXT NOT NULL DEFAULT 'active',
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by       UUID REFERENCES identity.users(id),
+  updated_by       UUID REFERENCES identity.users(id),
+  version          INTEGER NOT NULL DEFAULT 1,
+  archived_at      TIMESTAMPTZ,
+  CHECK (planned_amount >= 0 AND committed_amount >= 0 AND actual_amount >= 0)
 );
 
 CREATE INDEX idx_budget_lines_budget ON budget.budget_lines(budget_id);
@@ -472,9 +627,14 @@ CREATE TABLE procurement.purchase_orders (
   issued_at      TIMESTAMPTZ,
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by     UUID REFERENCES identity.users(id),
+  updated_by     UUID REFERENCES identity.users(id),
+  version        INTEGER NOT NULL DEFAULT 1,
+  archived_at    TIMESTAMPTZ,
   -- Vendor must be Active (see vendor_onboarding.vendor_onboardings) before a PO can be issued;
   -- enforced at application layer per Blueprint §11 Vendor Onboarding Workflow.
-  CONSTRAINT chk_po_amount_nonneg CHECK (total_amount >= 0)
+  CONSTRAINT chk_po_amount_nonneg CHECK (total_amount >= 0),
+  UNIQUE (id, project_id)
 );
 
 CREATE TABLE procurement.purchase_order_lines (
@@ -485,7 +645,15 @@ CREATE TABLE procurement.purchase_order_lines (
   quantity          NUMERIC(16,4),
   unit_price        NUMERIC(14,2),
   amount            NUMERIC(16,2),
-  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by        UUID REFERENCES identity.users(id),
+  updated_by        UUID REFERENCES identity.users(id),
+  version           INTEGER NOT NULL DEFAULT 1,
+  archived_at       TIMESTAMPTZ,
+  CHECK (quantity IS NULL OR quantity >= 0),
+  CHECK (unit_price IS NULL OR unit_price >= 0),
+  CHECK (amount IS NULL OR amount >= 0)
 );
 
 -- =====================================================================
@@ -506,7 +674,12 @@ CREATE TABLE contracts.contracts (
   executed_at         TIMESTAMPTZ,
   executed_document_id UUID REFERENCES documents.documents(id),
   created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by          UUID REFERENCES identity.users(id),
+  updated_by          UUID REFERENCES identity.users(id),
+  version             INTEGER NOT NULL DEFAULT 1,
+  archived_at         TIMESTAMPTZ,
+  CHECK (value IS NULL OR value >= 0)
 );
 
 CREATE TABLE contracts.contract_milestones (
@@ -517,7 +690,12 @@ CREATE TABLE contracts.contract_milestones (
   amount       NUMERIC(14,2),
   status       TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','due','paid','disputed')),
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by   UUID REFERENCES identity.users(id),
+  updated_by   UUID REFERENCES identity.users(id),
+  version      INTEGER NOT NULL DEFAULT 1,
+  archived_at  TIMESTAMPTZ,
+  CHECK (amount IS NULL OR amount >= 0)
 );
 
 -- =====================================================================
@@ -538,13 +716,22 @@ CREATE TABLE construction.schedule_activities (
   status                 TEXT NOT NULL DEFAULT 'not_started'
     CHECK (status IN ('not_started','in_progress','delayed','completed')),
   created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by             UUID REFERENCES identity.users(id),
+  updated_by             UUID REFERENCES identity.users(id),
+  version                INTEGER NOT NULL DEFAULT 1,
+  archived_at            TIMESTAMPTZ,
+  CHECK (planned_end IS NULL OR planned_start IS NULL OR planned_end >= planned_start),
+  CHECK (actual_end IS NULL OR actual_start IS NULL OR actual_end >= actual_start),
+  UNIQUE (id, project_id)
 );
 
 CREATE TABLE construction.site_diary_entries (
   id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id               UUID NOT NULL REFERENCES organization.projects(id),
   entry_date               DATE NOT NULL,
+  client_record_id         UUID NOT NULL DEFAULT gen_random_uuid(),
+  device_recorded_at       TIMESTAMPTZ,
   weather                  TEXT,
   labour_strength          JSONB,   -- {"mason": 12, "electrician": 4, ...}
   materials_received       JSONB,
@@ -556,7 +743,13 @@ CREATE TABLE construction.site_diary_entries (
   recorded_by              UUID REFERENCES identity.users(id),
   status                   TEXT NOT NULL DEFAULT 'submitted' CHECK (status IN ('draft','submitted')),
   created_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (project_id, entry_date)
+  updated_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by               UUID REFERENCES identity.users(id),
+  updated_by               UUID REFERENCES identity.users(id),
+  version                  INTEGER NOT NULL DEFAULT 1,
+  archived_at              TIMESTAMPTZ,
+  UNIQUE (project_id, entry_date),
+  UNIQUE (project_id, client_record_id)
 );
 
 CREATE TABLE construction.ehs_incidents (
@@ -569,7 +762,11 @@ CREATE TABLE construction.ehs_incidents (
   corrective_action   TEXT,
   status              TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','corrective_action_assigned','closed')),
   created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by          UUID REFERENCES identity.users(id),
+  updated_by          UUID REFERENCES identity.users(id),
+  version             INTEGER NOT NULL DEFAULT 1,
+  archived_at         TIMESTAMPTZ
 );
 
 CREATE TABLE construction.meeting_registers (
@@ -600,12 +797,21 @@ CREATE TABLE construction.change_requests (
   description       TEXT NOT NULL,
   schedule_impact   TEXT,
   budget_impact     NUMERIC(14,2),
+  evidence_document_id UUID REFERENCES documents.documents(id),
+  requested_by      UUID REFERENCES identity.users(id),
+  decided_by        UUID REFERENCES identity.users(id),
+  decided_at        TIMESTAMPTZ,
   status            TEXT NOT NULL DEFAULT 'requested'
     CHECK (status IN ('requested','feasibility_review','structural_review','revised_drawings',
                        'quantity_impact','budget_impact','procurement_impact','contract_impact',
                        'commercial_quotation','approved','implemented','verified','closed','rejected')),
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by        UUID REFERENCES identity.users(id),
+  updated_by        UUID REFERENCES identity.users(id),
+  version           INTEGER NOT NULL DEFAULT 1,
+  archived_at       TIMESTAMPTZ,
+  CHECK (budget_impact IS NULL OR budget_impact >= 0)
 );
 
 ALTER TABLE documents.document_versions
@@ -629,7 +835,12 @@ CREATE TABLE quality.inspection_templates (
   checklist     JSONB NOT NULL,    -- [{"item": "Pressure test completed", "requires_photo": true}, ...]
   status        TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('draft','active','retired')),
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by    UUID REFERENCES identity.users(id),
+  updated_by    UUID REFERENCES identity.users(id),
+  version       INTEGER NOT NULL DEFAULT 1,
+  archived_at   TIMESTAMPTZ,
+  UNIQUE (project_id, template_name)
 );
 
 CREATE TABLE quality.inspections (
@@ -645,7 +856,63 @@ CREATE TABLE quality.inspections (
   notes        TEXT,
   status       TEXT NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled','in_progress','completed')),
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by   UUID REFERENCES identity.users(id),
+  updated_by   UUID REFERENCES identity.users(id),
+  version      INTEGER NOT NULL DEFAULT 1,
+  archived_at  TIMESTAMPTZ,
+  UNIQUE (id, project_id)
+);
+
+CREATE TABLE construction.progress_updates (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id            UUID NOT NULL REFERENCES organization.projects(id),
+  schedule_activity_id  UUID NOT NULL REFERENCES construction.schedule_activities(id),
+  progress_date         DATE NOT NULL,
+  percent_complete      NUMERIC(5,2) NOT NULL CHECK (percent_complete BETWEEN 0 AND 100),
+  notes                 TEXT,
+  evidence_document_id  UUID REFERENCES documents.documents(id),
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by            UUID REFERENCES identity.users(id),
+  updated_by            UUID REFERENCES identity.users(id),
+  version               INTEGER NOT NULL DEFAULT 1,
+  archived_at           TIMESTAMPTZ,
+  UNIQUE (schedule_activity_id, progress_date)
+);
+
+CREATE TABLE quality.inspection_evidence (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  inspection_id  UUID NOT NULL REFERENCES quality.inspections(id),
+  document_id    UUID NOT NULL REFERENCES documents.documents(id),
+  evidence_type  TEXT NOT NULL DEFAULT 'photo'
+    CHECK (evidence_type IN ('photo','report','certificate','other')),
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by     UUID REFERENCES identity.users(id),
+  UNIQUE (inspection_id, document_id)
+);
+
+CREATE TABLE quality.snag_items (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id            UUID NOT NULL REFERENCES organization.projects(id),
+  inspection_id         UUID REFERENCES quality.inspections(id),
+  building_id           UUID REFERENCES organization.buildings(id),
+  floor_id              UUID REFERENCES organization.floors(id),
+  unit_id               UUID REFERENCES organization.units(id),
+  description           TEXT NOT NULL,
+  severity              TEXT NOT NULL DEFAULT 'minor'
+    CHECK (severity IN ('minor','major','critical')),
+  assigned_to           UUID REFERENCES identity.users(id),
+  due_date              DATE,
+  evidence_document_id  UUID REFERENCES documents.documents(id),
+  status                TEXT NOT NULL DEFAULT 'open'
+    CHECK (status IN ('open','assigned','rectified','verified','closed')),
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by            UUID REFERENCES identity.users(id),
+  updated_by            UUID REFERENCES identity.users(id),
+  version               INTEGER NOT NULL DEFAULT 1,
+  archived_at           TIMESTAMPTZ
 );
 
 -- RFI: promoted to a first-class object per audit finding (was folded into discrepancy case in v1).
@@ -656,45 +923,77 @@ CREATE TABLE quality.rfis (
   routed_to    UUID REFERENCES identity.users(id),
   question     TEXT NOT NULL,
   response     TEXT,
+  evidence_document_id UUID REFERENCES documents.documents(id),
+  responded_by UUID REFERENCES identity.users(id),
+  responded_at TIMESTAMPTZ,
   sla_due_at   TIMESTAMPTZ,
   status       TEXT NOT NULL DEFAULT 'raised' CHECK (status IN ('raised','routed','responded','closed','overdue')),
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by   UUID REFERENCES identity.users(id),
+  updated_by   UUID REFERENCES identity.users(id),
+  version      INTEGER NOT NULL DEFAULT 1,
+  archived_at  TIMESTAMPTZ
 );
 
 -- NCR: promoted to a first-class object per audit finding.
 CREATE TABLE quality.ncrs (
   id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id          UUID NOT NULL REFERENCES organization.projects(id),
-  inspection_id       UUID REFERENCES quality.inspections(id),
-  schedule_activity_id UUID REFERENCES construction.schedule_activities(id),
+  inspection_id       UUID,
+  schedule_activity_id UUID,
   severity            TEXT NOT NULL CHECK (severity IN ('minor','major','critical')),
   description          TEXT NOT NULL,
   corrective_action    TEXT,
-  reinspection_id      UUID REFERENCES quality.inspections(id),
+  evidence_document_id UUID REFERENCES documents.documents(id),
+  closed_by             UUID REFERENCES identity.users(id),
+  closed_at             TIMESTAMPTZ,
+  reinspection_id      UUID,
   status               TEXT NOT NULL DEFAULT 'raised'
     CHECK (status IN ('raised','corrective_action_assigned','reinspection_scheduled','closed')),
   created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by             UUID REFERENCES identity.users(id),
+  updated_by             UUID REFERENCES identity.users(id),
+  version                INTEGER NOT NULL DEFAULT 1,
+  archived_at            TIMESTAMPTZ,
+  FOREIGN KEY (inspection_id, project_id) REFERENCES quality.inspections(id, project_id),
+  FOREIGN KEY (schedule_activity_id, project_id)
+    REFERENCES construction.schedule_activities(id, project_id),
+  FOREIGN KEY (reinspection_id, project_id) REFERENCES quality.inspections(id, project_id)
 );
 
 -- Discrepancy case remains distinct: used specifically for quantity variances (Blueprint §9).
 CREATE TABLE quality.discrepancy_cases (
   id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id        UUID NOT NULL REFERENCES organization.projects(id),
-  quantity_item_id  UUID REFERENCES quantities.quantity_items(id),
+  quantity_item_id  UUID,
   description       TEXT,
   evidence_ref      JSONB,
+  evidence_document_id UUID REFERENCES documents.documents(id),
+  resolved_by       UUID REFERENCES identity.users(id),
+  resolved_at       TIMESTAMPTZ,
   proposed_resolution TEXT,
   status            TEXT NOT NULL DEFAULT 'open'
     CHECK (status IN ('open','explanation_provided','engineering_review','owner_approval_required','resolved')),
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by        UUID REFERENCES identity.users(id),
+  updated_by        UUID REFERENCES identity.users(id),
+  version           INTEGER NOT NULL DEFAULT 1,
+  archived_at       TIMESTAMPTZ,
+  FOREIGN KEY (quantity_item_id, project_id)
+    REFERENCES quantities.quantity_items(id, project_id)
 );
 
 CREATE INDEX idx_inspections_project ON quality.inspections(project_id);
+CREATE INDEX idx_progress_updates_project_date
+  ON construction.progress_updates(project_id, progress_date);
+CREATE INDEX idx_snag_items_project_status ON quality.snag_items(project_id, status);
 CREATE INDEX idx_rfis_project_status ON quality.rfis(project_id, status);
 CREATE INDEX idx_ncrs_project_status ON quality.ncrs(project_id, status);
+CREATE INDEX idx_change_requests_project_status ON construction.change_requests(project_id, status);
+CREATE INDEX idx_discrepancy_cases_project_status ON quality.discrepancy_cases(project_id, status);
 
 -- =====================================================================
 -- SCHEMA: inventory   (Blueprint §4)
@@ -706,29 +1005,56 @@ CREATE TABLE inventory.materials (
   name          TEXT NOT NULL,
   unit_of_measure TEXT NOT NULL,
   category      TEXT,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by    UUID REFERENCES identity.users(id),
+  updated_by    UUID REFERENCES identity.users(id),
+  version       INTEGER NOT NULL DEFAULT 1,
+  archived_at   TIMESTAMPTZ,
+  UNIQUE (name, unit_of_measure)
 );
 
 CREATE TABLE inventory.material_receipts (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id         UUID NOT NULL REFERENCES organization.projects(id),
-  purchase_order_id  UUID REFERENCES procurement.purchase_orders(id),
+  purchase_order_id  UUID,
   material_id        UUID NOT NULL REFERENCES inventory.materials(id),
-  quantity_received  NUMERIC(16,4),
+  quantity_received  NUMERIC(16,4) NOT NULL CHECK (quantity_received > 0),
+  batch_reference    TEXT,
+  certificate_document_id UUID REFERENCES documents.documents(id),
   received_date      DATE NOT NULL,
   status             TEXT NOT NULL DEFAULT 'received' CHECK (status IN ('received','rejected','partial')),
-  created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by         UUID REFERENCES identity.users(id),
+  updated_by         UUID REFERENCES identity.users(id),
+  version            INTEGER NOT NULL DEFAULT 1,
+  archived_at        TIMESTAMPTZ,
+  FOREIGN KEY (purchase_order_id, project_id)
+    REFERENCES procurement.purchase_orders(id, project_id)
 );
 
 CREATE TABLE inventory.material_issuances (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id    UUID NOT NULL REFERENCES organization.projects(id),
   material_id   UUID NOT NULL REFERENCES inventory.materials(id),
-  quantity_issued NUMERIC(16,4),
+  material_receipt_id UUID NOT NULL REFERENCES inventory.material_receipts(id),
+  quantity_issued NUMERIC(16,4) NOT NULL CHECK (quantity_issued > 0),
   issued_to     TEXT,
   issued_date   DATE NOT NULL,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+  evidence_document_id UUID REFERENCES documents.documents(id),
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by    UUID REFERENCES identity.users(id),
+  updated_by    UUID REFERENCES identity.users(id),
+  version       INTEGER NOT NULL DEFAULT 1,
+  archived_at   TIMESTAMPTZ
 );
+
+CREATE INDEX idx_bim_imports_project ON design.bim_imports(project_id);
+CREATE INDEX idx_quantity_items_project_status ON quantities.quantity_items(project_id, status);
+CREATE INDEX idx_material_receipts_project_date ON inventory.material_receipts(project_id, received_date);
+CREATE INDEX idx_material_issuances_receipt ON inventory.material_issuances(material_receipt_id);
 
 -- =====================================================================
 -- SCHEMA: sales   (Blueprint §4.2 — CRM lead funnel / channel-partner commission)
@@ -764,7 +1090,11 @@ CREATE TABLE customers.customers (
   id         UUID PRIMARY KEY REFERENCES organization.parties(id),
   kyc_status TEXT NOT NULL DEFAULT 'pending' CHECK (kyc_status IN ('pending','verified','rejected')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by UUID REFERENCES identity.users(id),
+  updated_by UUID REFERENCES identity.users(id),
+  version INTEGER NOT NULL DEFAULT 1,
+  archived_at TIMESTAMPTZ
 );
 
 CREATE TABLE customers.bookings (
@@ -774,9 +1104,14 @@ CREATE TABLE customers.bookings (
   project_id    UUID NOT NULL REFERENCES organization.projects(id),
   lead_id       UUID REFERENCES sales.leads(id),
   booking_date  DATE NOT NULL,
+  booking_document_id UUID REFERENCES documents.documents(id),
   status        TEXT NOT NULL DEFAULT 'booked' CHECK (status IN ('booked','cancelled','registered','possessed')),
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by    UUID REFERENCES identity.users(id),
+  updated_by    UUID REFERENCES identity.users(id),
+  version       INTEGER NOT NULL DEFAULT 1,
+  archived_at   TIMESTAMPTZ
 );
 
 CREATE TABLE sales.commissions (
@@ -793,8 +1128,14 @@ CREATE TABLE customers.payment_plans (
   booking_id   UUID NOT NULL REFERENCES customers.bookings(id),
   plan_name    TEXT,
   total_amount NUMERIC(16,2),
-  status       TEXT NOT NULL DEFAULT 'active',
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+  status       TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','completed','cancelled')),
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by   UUID REFERENCES identity.users(id),
+  updated_by   UUID REFERENCES identity.users(id),
+  version      INTEGER NOT NULL DEFAULT 1,
+  archived_at  TIMESTAMPTZ,
+  CHECK (total_amount IS NULL OR total_amount >= 0)
 );
 
 CREATE TABLE customers.payment_plan_installments (
@@ -803,7 +1144,13 @@ CREATE TABLE customers.payment_plan_installments (
   due_date         DATE,
   amount           NUMERIC(14,2),
   status           TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','collected','overdue','waived')),
-  created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by       UUID REFERENCES identity.users(id),
+  updated_by       UUID REFERENCES identity.users(id),
+  version          INTEGER NOT NULL DEFAULT 1,
+  archived_at      TIMESTAMPTZ,
+  CHECK (amount IS NULL OR amount >= 0)
 );
 
 CREATE TABLE customers.collections (
@@ -814,36 +1161,128 @@ CREATE TABLE customers.collections (
   received_date  DATE NOT NULL,
   mode           TEXT,   -- cheque, NEFT, PDC, etc.
   reference_number TEXT,
+  evidence_document_id UUID REFERENCES documents.documents(id),
+  received_by    UUID REFERENCES identity.users(id),
+  allocated_at   TIMESTAMPTZ,
   status         TEXT NOT NULL DEFAULT 'received' CHECK (status IN ('received','bounced','allocated')),
-  created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by     UUID REFERENCES identity.users(id),
+  updated_by     UUID REFERENCES identity.users(id),
+  version        INTEGER NOT NULL DEFAULT 1,
+  archived_at    TIMESTAMPTZ,
+  CHECK (amount > 0)
 );
 
 CREATE TABLE customers.possession_records (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   booking_id    UUID NOT NULL REFERENCES customers.bookings(id),
   handover_date DATE,
+  evidence_document_id UUID REFERENCES documents.documents(id),
+  handed_over_by UUID REFERENCES identity.users(id),
   status        TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','snag_review','handed_over')),
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by    UUID REFERENCES identity.users(id),
+  updated_by    UUID REFERENCES identity.users(id),
+  version       INTEGER NOT NULL DEFAULT 1,
+  archived_at   TIMESTAMPTZ,
+  UNIQUE (booking_id)
+);
+
+CREATE TABLE customers.registration_records (
+  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  booking_id           UUID NOT NULL UNIQUE REFERENCES customers.bookings(id),
+  registration_date    DATE,
+  evidence_document_id UUID REFERENCES documents.documents(id),
+  registered_by        UUID REFERENCES identity.users(id),
+  status               TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending','scheduled','registered','cancelled')),
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by           UUID REFERENCES identity.users(id),
+  updated_by           UUID REFERENCES identity.users(id),
+  version              INTEGER NOT NULL DEFAULT 1,
+  archived_at          TIMESTAMPTZ
+);
+
+CREATE TABLE customers.booking_contracts (
+  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  booking_id           UUID NOT NULL UNIQUE REFERENCES customers.bookings(id),
+  contract_id          UUID NOT NULL UNIQUE REFERENCES contracts.contracts(id),
+  executed_document_id UUID NOT NULL REFERENCES documents.documents(id),
+  linked_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  linked_by            UUID REFERENCES identity.users(id),
+  version              INTEGER NOT NULL DEFAULT 1,
+  archived_at          TIMESTAMPTZ
 );
 
 CREATE INDEX idx_bookings_project ON customers.bookings(project_id);
 CREATE INDEX idx_collections_booking ON customers.collections(booking_id);
+CREATE UNIQUE INDEX uq_active_booking_unit ON customers.bookings(unit_id)
+  WHERE status <> 'cancelled' AND archived_at IS NULL;
 
 -- =====================================================================
 -- SCHEMA: finance   (Blueprint §16 Tally Reconciliation)
 -- =====================================================================
 CREATE SCHEMA IF NOT EXISTS finance;
 
+CREATE TABLE finance.tally_import_batches (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  legal_entity_id    UUID NOT NULL REFERENCES organization.legal_entities(id),
+  source_document_id UUID NOT NULL REFERENCES documents.documents(id),
+  content_sha256     TEXT NOT NULL CHECK (content_sha256 ~ '^[0-9a-f]{64}$'),
+  period_start       DATE,
+  period_end         DATE,
+  status             TEXT NOT NULL DEFAULT 'pending_validation'
+    CHECK (status IN ('pending_validation','validated','rejected','imported')),
+  validation_summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+  imported_at        TIMESTAMPTZ,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by         UUID REFERENCES identity.users(id),
+  updated_by         UUID REFERENCES identity.users(id),
+  version            INTEGER NOT NULL DEFAULT 1,
+  archived_at        TIMESTAMPTZ,
+  CHECK (period_end IS NULL OR period_start IS NULL OR period_end >= period_start),
+  UNIQUE (legal_entity_id, content_sha256)
+);
+
+CREATE TABLE finance.tally_ledger_mappings (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  legal_entity_id    UUID NOT NULL REFERENCES organization.legal_entities(id),
+  tally_ledger_name  TEXT NOT NULL,
+  erp_reference_type TEXT NOT NULL,
+  erp_reference_id   UUID NOT NULL,
+  status             TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','retired')),
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by         UUID REFERENCES identity.users(id),
+  updated_by         UUID REFERENCES identity.users(id),
+  version            INTEGER NOT NULL DEFAULT 1,
+  archived_at        TIMESTAMPTZ,
+  UNIQUE (legal_entity_id, tally_ledger_name)
+);
+
 CREATE TABLE finance.tally_vouchers (
   id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  import_batch_id  UUID NOT NULL REFERENCES finance.tally_import_batches(id),
   legal_entity_id  UUID NOT NULL REFERENCES organization.legal_entities(id),
-  voucher_type     TEXT,
-  voucher_number   TEXT,
-  voucher_date     DATE,
-  amount           NUMERIC(16,2),
-  ledger_reference TEXT,
+  project_id       UUID REFERENCES organization.projects(id),
+  external_id      TEXT NOT NULL,
+  voucher_type     TEXT NOT NULL,
+  voucher_number   TEXT NOT NULL,
+  voucher_date     DATE NOT NULL,
+  amount           NUMERIC(16,2) NOT NULL CHECK (amount >= 0),
+  ledger_reference TEXT NOT NULL,
+  currency_code    TEXT NOT NULL DEFAULT 'INR' CHECK (currency_code ~ '^[A-Z]{3}$'),
   imported_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  status           TEXT NOT NULL DEFAULT 'imported' CHECK (status IN ('imported','matched','discrepant'))
+  status           TEXT NOT NULL DEFAULT 'imported' CHECK (status IN ('imported','matched','discrepant')),
+  created_by       UUID REFERENCES identity.users(id),
+  updated_by       UUID REFERENCES identity.users(id),
+  version          INTEGER NOT NULL DEFAULT 1,
+  archived_at      TIMESTAMPTZ,
+  UNIQUE (legal_entity_id, external_id)
 );
 
 CREATE TABLE finance.reconciliations (
@@ -852,11 +1291,34 @@ CREATE TABLE finance.reconciliations (
   erp_reference_type TEXT NOT NULL,   -- 'purchase_order','contract_milestone','collection', etc.
   erp_reference_id   UUID NOT NULL,
   tally_voucher_id   UUID REFERENCES finance.tally_vouchers(id),
-  discrepancy_type   TEXT,            -- missing_in_tally, missing_in_erp, amount_mismatch, wrong_entity, wrong_project, duplicate, unallocated_receipt
-  status             TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','under_review','reconciled')),
+  discrepancy_type   TEXT NOT NULL CHECK (discrepancy_type IN
+    ('missing_in_tally','missing_in_erp','amount_mismatch','wrong_entity','wrong_project',
+     'duplicate_voucher','unallocated_receipt','schedule_not_updated','obligation_still_open')),
+  erp_amount          NUMERIC(16,2) CHECK (erp_amount IS NULL OR erp_amount >= 0),
+  tally_amount        NUMERIC(16,2) CHECK (tally_amount IS NULL OR tally_amount >= 0),
+  status             TEXT NOT NULL DEFAULT 'open'
+    CHECK (status IN ('open','under_review','reconciled','accepted_exception')),
   reviewed_by        UUID REFERENCES identity.users(id),
+  reviewed_at        TIMESTAMPTZ,
+  resolution_code    TEXT,
+  resolution_note    TEXT,
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by         UUID REFERENCES identity.users(id),
+  updated_by         UUID REFERENCES identity.users(id),
+  version            INTEGER NOT NULL DEFAULT 1,
+  archived_at        TIMESTAMPTZ
+);
+
+CREATE INDEX idx_tally_batches_entity_status
+  ON finance.tally_import_batches(legal_entity_id, status);
+CREATE INDEX idx_tally_vouchers_batch ON finance.tally_vouchers(import_batch_id);
+CREATE INDEX idx_reconciliations_entity_status
+  ON finance.reconciliations(legal_entity_id, status);
+CREATE UNIQUE INDEX uq_reconciliation_fact ON finance.reconciliations(
+  erp_reference_type, erp_reference_id,
+  COALESCE(tally_voucher_id, '00000000-0000-0000-0000-000000000000'::uuid),
+  discrepancy_type
 );
 
 CREATE TABLE finance.payments (
@@ -988,26 +1450,44 @@ CREATE SCHEMA IF NOT EXISTS ai;
 
 CREATE TABLE ai.ai_queries (
   id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id              UUID REFERENCES identity.users(id),
-  query_text           TEXT NOT NULL,
-  intent_classification TEXT,
-  response_text        TEXT,
-  confidence           NUMERIC(4,3),   -- 0.000–1.000; below Phase-11 minimum threshold, AI must decline
+  user_id              UUID NOT NULL REFERENCES identity.users(id),
+  legal_entity_id      UUID REFERENCES organization.legal_entities(id),
+  project_id           UUID REFERENCES organization.projects(id),
+  request_digest       TEXT NOT NULL CHECK (request_digest ~ '^[0-9a-f]{64}$'),
+  request_length       INTEGER NOT NULL CHECK (request_length BETWEEN 1 AND 12000),
+  intent_classification TEXT NOT NULL,
+  authority_level      INTEGER NOT NULL CHECK (authority_level BETWEEN 1 AND 4),
+  response_digest      TEXT CHECK (response_digest IS NULL OR response_digest ~ '^[0-9a-f]{64}$'),
+  response_length      INTEGER CHECK (response_length IS NULL OR response_length >= 0),
+  confidence           NUMERIC(4,3) CHECK (confidence IS NULL OR confidence BETWEEN 0 AND 1),
   required_approver    UUID REFERENCES identity.users(id),
-  status               TEXT NOT NULL DEFAULT 'answered' CHECK (status IN ('answered','declined_low_confidence','blocked_authority')),
-  created_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+  status               TEXT NOT NULL DEFAULT 'pending' CHECK (status IN
+    ('pending','answered','declined_low_confidence','blocked_authority',
+     'blocked_prompt_injection','hosting_not_configured','failed')),
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by           UUID REFERENCES identity.users(id),
+  updated_by           UUID REFERENCES identity.users(id),
+  version              INTEGER NOT NULL DEFAULT 1,
+  archived_at          TIMESTAMPTZ
 );
 
 CREATE TABLE ai.ai_recommendations (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   ai_query_id        UUID NOT NULL REFERENCES ai.ai_queries(id),
-  recommendation_text TEXT NOT NULL,
+  content_document_id UUID NOT NULL REFERENCES documents.documents(id),
+  recommendation_digest TEXT NOT NULL CHECK (recommendation_digest ~ '^[0-9a-f]{64}$'),
   financial_impact   NUMERIC(16,2),
   schedule_impact    TEXT,
   risk_level         TEXT CHECK (risk_level IN ('low','medium','high')),
   status             TEXT NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed','approved','rejected','superseded')),
   approved_by        UUID REFERENCES identity.users(id),
-  created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by         UUID REFERENCES identity.users(id),
+  updated_by         UUID REFERENCES identity.users(id),
+  version            INTEGER NOT NULL DEFAULT 1,
+  archived_at        TIMESTAMPTZ
 );
 
 -- Authority-boundary log: every attempted action is logged, including blocked ones —
@@ -1016,19 +1496,36 @@ CREATE TABLE ai.ai_authority_log (
   id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   ai_query_id      UUID REFERENCES ai.ai_queries(id),
   authority_level  INT NOT NULL CHECK (authority_level BETWEEN 1 AND 4),
-  action_attempted TEXT NOT NULL,
+  action_code      TEXT NOT NULL,
   blocked          BOOLEAN NOT NULL DEFAULT false,
-  reason           TEXT,
+  reason_code      TEXT,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE INDEX idx_ai_queries_scope_created
+  ON ai.ai_queries(legal_entity_id, project_id, created_at);
+CREATE INDEX idx_ai_authority_query ON ai.ai_authority_log(ai_query_id);
 
 -- =====================================================================
 -- SCHEMA: audit   (Blueprint §5.2 — hash-chained AuditEvent)
 -- =====================================================================
 CREATE SCHEMA IF NOT EXISTS audit;
 
+-- Chain position allocator. Deliberately NOT wired as a column DEFAULT (i.e.
+-- not BIGSERIAL): a default is evaluated before BEFORE-INSERT triggers run,
+-- so numbers would be handed out before the chain lock is taken and seq order
+-- would not match chain linkage. compute_record_hash() calls nextval() itself,
+-- inside the lock. See the trigger below.
+CREATE SEQUENCE audit.audit_events_seq;
+
 CREATE TABLE audit.audit_events (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  -- Monotonic chain position. id is a random UUID and created_at is
+  -- transaction-scoped (identical for every row written in one transaction),
+  -- so neither can order the hash chain. seq is the only ordering key the
+  -- chain may use — in the trigger below and in any verifier. Assigned by
+  -- the trigger, not by a default; see audit.audit_events_seq above.
+  seq           BIGINT NOT NULL UNIQUE,
   occurred_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   actor_user_id UUID REFERENCES identity.users(id),
   entity_schema TEXT NOT NULL,
@@ -1061,13 +1558,31 @@ CREATE OR REPLACE FUNCTION audit.compute_record_hash() RETURNS trigger AS $$
 DECLARE
   last_hash TEXT;
 BEGIN
-  SELECT record_hash INTO last_hash FROM audit.audit_events ORDER BY created_at DESC, id DESC LIMIT 1;
+  -- Chain construction is inherently serial: two concurrent inserts that both
+  -- read the same predecessor would fork the chain. Serialise appenders on a
+  -- transaction-scoped advisory lock. Held until commit, so the reader below
+  -- and the eventual insert are atomic with respect to other appenders.
+  PERFORM pg_advisory_xact_lock(hashtext('audit.audit_events'));
+
+  -- Allocate the chain position under the lock, so seq order and hash linkage
+  -- can never disagree. (A BIGSERIAL default would be evaluated before this
+  -- trigger body runs, allowing a writer holding seq=N to chain onto seq=N+1.)
+  NEW.seq := nextval('audit.audit_events_seq');
+
+  SELECT record_hash INTO last_hash FROM audit.audit_events ORDER BY seq DESC LIMIT 1;
   NEW.prev_hash := COALESCE(last_hash, repeat('0', 64));
+  -- occurred_at is normalised to UTC and formatted explicitly rather than cast
+  -- with ::text. A timestamptz cast renders through the *session's* TimeZone
+  -- and DateStyle settings, so the same instant written by a client on
+  -- Asia/Kolkata and verified by one on UTC would hash to two different values
+  -- and the chain would read as tampered. to_char with a fixed pattern is
+  -- stable across both settings and always emits 6 fractional digits.
   NEW.record_hash := encode(
     digest(
       NEW.prev_hash || NEW.entity_schema || NEW.entity_table ||
       COALESCE(NEW.entity_id::text, '') || NEW.action ||
-      COALESCE(NEW.after_state::text, '') || NEW.occurred_at::text,
+      COALESCE(NEW.after_state::text, '') ||
+      to_char(NEW.occurred_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US'),
       'sha256'
     ),
     'hex'
@@ -1099,7 +1614,12 @@ CREATE TABLE vendor_onboarding.vendor_onboardings (
   approved_at                 TIMESTAMPTZ,
   approved_by                 UUID REFERENCES identity.users(id),
   created_at                  TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at                  TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at                  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by                  UUID REFERENCES identity.users(id),
+  updated_by                  UUID REFERENCES identity.users(id),
+  version                     INTEGER NOT NULL DEFAULT 1,
+  archived_at                 TIMESTAMPTZ,
+  UNIQUE (vendor_id)
 );
 
 CREATE TABLE vendor_onboarding.kyc_records (
@@ -1111,7 +1631,13 @@ CREATE TABLE vendor_onboarding.kyc_records (
   verification_status TEXT NOT NULL DEFAULT 'pending' CHECK (verification_status IN ('pending','verified','rejected')),
   verified_by         UUID REFERENCES identity.users(id),
   verified_at         TIMESTAMPTZ,
-  created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+  evidence_document_id UUID REFERENCES documents.documents(id),
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by          UUID REFERENCES identity.users(id),
+  updated_by          UUID REFERENCES identity.users(id),
+  version             INTEGER NOT NULL DEFAULT 1,
+  archived_at         TIMESTAMPTZ
 );
 
 CREATE TABLE vendor_onboarding.insurance_policies (
@@ -1127,7 +1653,12 @@ CREATE TABLE vendor_onboarding.insurance_policies (
   valid_to       DATE,
   status         TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','expired','claimed','cancelled')),
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by     UUID REFERENCES identity.users(id),
+  updated_by     UUID REFERENCES identity.users(id),
+  version        INTEGER NOT NULL DEFAULT 1,
+  archived_at    TIMESTAMPTZ,
+  CHECK (sum_insured IS NULL OR sum_insured >= 0)
 );
 
 CREATE TABLE vendor_onboarding.labour_compliance_records (
@@ -1140,7 +1671,11 @@ CREATE TABLE vendor_onboarding.labour_compliance_records (
   minimum_wage_evidence_ref     TEXT,
   status                        TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','compliant','non_compliant')),
   created_at                    TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at                    TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at                    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by                    UUID REFERENCES identity.users(id),
+  updated_by                    UUID REFERENCES identity.users(id),
+  version                       INTEGER NOT NULL DEFAULT 1,
+  archived_at                   TIMESTAMPTZ
 );
 
 CREATE INDEX idx_kyc_records_party ON vendor_onboarding.kyc_records(party_id);
@@ -1151,17 +1686,120 @@ CREATE INDEX idx_insurance_policies_project ON vendor_onboarding.insurance_polic
 -- =====================================================================
 CREATE SCHEMA IF NOT EXISTS reporting;
 
--- No base tables here by design: this schema is fed by logical replication
--- (or, at minimum, a nightly materialized-view refresh) from the transactional
--- schemas above, so CEO-dashboard and analytics queries never compete with
--- operational writes (Blueprint §19). Materialized views are added once each
--- source module ships — e.g., after Phase 4:
---
---   CREATE MATERIALIZED VIEW reporting.mv_budget_vs_actual AS
---     SELECT project_id, SUM(planned_amount) AS planned, SUM(actual_amount) AS actual
---     FROM budget.budget_lines GROUP BY project_id;
---
--- and refreshed on a schedule by a background worker (Blueprint §7.1).
+CREATE TABLE reporting.report_requests (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  legal_entity_id   UUID NOT NULL REFERENCES organization.legal_entities(id),
+  project_id        UUID REFERENCES organization.projects(id),
+  report_type       TEXT NOT NULL CHECK (report_type IN ('ceo_project_summary','ceo_entity_summary')),
+  output_format     TEXT NOT NULL CHECK (output_format IN ('pdf','xlsx')),
+  status            TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','generating','ready','failed','expired')),
+  output_document_id UUID REFERENCES documents.documents(id),
+  requested_by      UUID NOT NULL REFERENCES identity.users(id),
+  requested_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  completed_at      TIMESTAMPTZ,
+  expires_at        TIMESTAMPTZ,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by        UUID REFERENCES identity.users(id),
+  updated_by        UUID REFERENCES identity.users(id),
+  version           INTEGER NOT NULL DEFAULT 1,
+  archived_at       TIMESTAMPTZ,
+  CHECK (project_id IS NOT NULL OR report_type = 'ceo_entity_summary')
+);
+
+CREATE INDEX idx_report_requests_scope_status
+  ON reporting.report_requests(legal_entity_id, project_id, status);
+
+-- This definition is installed on the logical-replication reporting database.
+-- It contains aggregates and opaque IDs only; no party/customer identity,
+-- payment references, document content, or free-form narratives cross the view.
+CREATE MATERIALIZED VIEW reporting.mv_ceo_project_summary AS
+WITH budget_totals AS (
+  SELECT b.project_id,
+         COALESCE(SUM(bl.planned_amount), 0) AS planned_amount,
+         COALESCE(SUM(bl.committed_amount), 0) AS committed_amount,
+         COALESCE(SUM(bl.actual_amount), 0) AS actual_amount
+  FROM budget.budgets b
+  LEFT JOIN budget.budget_lines bl ON bl.budget_id = b.id AND bl.archived_at IS NULL
+  WHERE b.archived_at IS NULL AND b.status IN ('approved','revised')
+  GROUP BY b.project_id
+), po_totals AS (
+  SELECT project_id, COALESCE(SUM(total_amount), 0) AS approved_po_amount
+  FROM procurement.purchase_orders
+  WHERE archived_at IS NULL AND status IN ('approved','issued','partially_received','closed')
+  GROUP BY project_id
+), payment_totals AS (
+  SELECT project_id, COALESCE(SUM(amount), 0) AS released_payment_amount
+  FROM finance.payments WHERE status = 'released' GROUP BY project_id
+), collection_totals AS (
+  SELECT b.project_id,
+         COALESCE(SUM(c.amount) FILTER (WHERE c.status = 'allocated'), 0) AS allocated_collection_amount,
+         COUNT(*) FILTER (WHERE c.status = 'received') AS unallocated_collection_count
+  FROM customers.bookings b
+  JOIN customers.collections c ON c.booking_id = b.id AND c.archived_at IS NULL
+  WHERE b.archived_at IS NULL AND b.status <> 'cancelled'
+  GROUP BY b.project_id
+), receivable_totals AS (
+  SELECT b.project_id, COALESCE(SUM(pp.total_amount), 0) AS scheduled_receivable_amount
+  FROM customers.bookings b
+  JOIN customers.payment_plans pp ON pp.booking_id = b.id AND pp.archived_at IS NULL AND pp.status = 'active'
+  WHERE b.archived_at IS NULL AND b.status <> 'cancelled'
+  GROUP BY b.project_id
+), overdue_totals AS (
+  SELECT b.project_id, COUNT(*) AS overdue_installment_count
+  FROM customers.bookings b
+  JOIN customers.payment_plans pp ON pp.booking_id = b.id AND pp.archived_at IS NULL AND pp.status = 'active'
+  JOIN customers.payment_plan_installments i ON i.payment_plan_id = pp.id AND i.archived_at IS NULL AND i.status = 'overdue'
+  WHERE b.archived_at IS NULL AND b.status <> 'cancelled'
+  GROUP BY b.project_id
+), delivery_risk AS (
+  SELECT p.id AS project_id,
+         (SELECT COUNT(*) FROM construction.schedule_activities a WHERE a.project_id = p.id AND a.archived_at IS NULL AND a.status = 'delayed') AS delayed_activity_count,
+         (SELECT COUNT(*) FROM quality.inspections i WHERE i.project_id = p.id AND i.archived_at IS NULL AND i.status = 'completed' AND i.result = 'fail') AS failed_inspection_count,
+         (SELECT COUNT(*) FROM compliance.compliance_obligations o WHERE o.project_id = p.id AND o.archived_at IS NULL AND o.status IN ('open','overdue')) AS open_compliance_count,
+         (SELECT COUNT(*) FROM finance.reconciliations r WHERE r.legal_entity_id = p.legal_entity_id AND r.archived_at IS NULL AND r.status IN ('open','under_review')) AS open_reconciliation_count
+  FROM organization.projects p
+), unit_totals AS (
+  SELECT b.project_id, COUNT(u.id) AS total_unit_count,
+         COUNT(*) FILTER (WHERE u.status = 'available') AS available_unit_count,
+         COUNT(*) FILTER (WHERE u.status IN ('booked','sold','possessed')) AS committed_unit_count
+  FROM organization.buildings b
+  JOIN organization.floors f ON f.building_id = b.id
+  JOIN organization.units u ON u.floor_id = f.id
+  GROUP BY b.project_id
+)
+SELECT p.id AS project_id, p.legal_entity_id,
+       COALESCE(bt.planned_amount, 0)::NUMERIC(18,2) AS planned_amount,
+       COALESCE(bt.committed_amount, 0)::NUMERIC(18,2) AS committed_amount,
+       COALESCE(bt.actual_amount, 0)::NUMERIC(18,2) AS actual_amount,
+       COALESCE(po.approved_po_amount, 0)::NUMERIC(18,2) AS approved_po_amount,
+       COALESCE(py.released_payment_amount, 0)::NUMERIC(18,2) AS released_payment_amount,
+       COALESCE(ct.allocated_collection_amount, 0)::NUMERIC(18,2) AS allocated_collection_amount,
+       GREATEST(COALESCE(rt.scheduled_receivable_amount, 0) - COALESCE(ct.allocated_collection_amount, 0), 0)::NUMERIC(18,2) AS outstanding_receivable_amount,
+       COALESCE(ct.unallocated_collection_count, 0)::BIGINT AS unallocated_collection_count,
+       COALESCE(ot.overdue_installment_count, 0)::BIGINT AS overdue_installment_count,
+       COALESCE(dr.delayed_activity_count, 0)::BIGINT AS delayed_activity_count,
+       COALESCE(dr.failed_inspection_count, 0)::BIGINT AS failed_inspection_count,
+       COALESCE(dr.open_compliance_count, 0)::BIGINT AS open_compliance_count,
+       COALESCE(dr.open_reconciliation_count, 0)::BIGINT AS open_reconciliation_count,
+       COALESCE(ut.total_unit_count, 0)::BIGINT AS total_unit_count,
+       COALESCE(ut.available_unit_count, 0)::BIGINT AS available_unit_count,
+       COALESCE(ut.committed_unit_count, 0)::BIGINT AS committed_unit_count,
+       statement_timestamp() AS refreshed_at
+FROM organization.projects p
+LEFT JOIN budget_totals bt ON bt.project_id = p.id
+LEFT JOIN po_totals po ON po.project_id = p.id
+LEFT JOIN payment_totals py ON py.project_id = p.id
+LEFT JOIN collection_totals ct ON ct.project_id = p.id
+LEFT JOIN receivable_totals rt ON rt.project_id = p.id
+LEFT JOIN overdue_totals ot ON ot.project_id = p.id
+LEFT JOIN delivery_risk dr ON dr.project_id = p.id
+LEFT JOIN unit_totals ut ON ut.project_id = p.id
+WHERE p.archived_at IS NULL
+WITH NO DATA;
+
+CREATE UNIQUE INDEX uq_mv_ceo_project_summary_project
+  ON reporting.mv_ceo_project_summary(project_id);
 
 -- =====================================================================
 -- Auto-attach the updated_at trigger to every table that has that column.
@@ -1188,7 +1826,6 @@ END $$;
 -- Not yet included (deliberately — see Blueprint §25 Open Decisions):
 --   - Row-level security policies (depends on the finalized role/permission
 --     matrix from Phase 0).
---   - Reporting schema's materialized views (depends on Phase 4+ data existing).
 --   - Object-storage-side encryption key references (depends on the KMS/HSM
 --     product decision in Blueprint §3.3).
 -- =====================================================================

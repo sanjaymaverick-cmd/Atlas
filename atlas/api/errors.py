@@ -1,0 +1,149 @@
+"""Safe, consistent HTTP error responses."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
+from atlas.modules.ai_assistant.contracts import AssistantConflictError, AssistantNotAuthorisedError
+from atlas.modules.change_control.contracts import (
+    ChangeControlConflictError,
+    ChangeControlNotAuthorisedError,
+    ChangeControlNotFoundError,
+)
+from atlas.modules.commercial.contracts import (
+    CommercialConflictError,
+    CommercialNotAuthorisedError,
+    CommercialNotFoundError,
+)
+from atlas.modules.compliance.contracts import (
+    ComplianceConflictError,
+    ComplianceNotAuthorisedError,
+    ComplianceNotFoundError,
+)
+from atlas.modules.construction.contracts import (
+    ConstructionConflictError,
+    ConstructionNotAuthorisedError,
+    ConstructionNotFoundError,
+)
+from atlas.modules.customer_lifecycle.contracts import (
+    CustomerLifecycleConflictError,
+    CustomerLifecycleNotAuthorisedError,
+    CustomerLifecycleNotFoundError,
+)
+from atlas.modules.documents.contracts import (
+    DocumentConflictError,
+    DocumentNotAuthorisedError,
+    DocumentNotFoundError,
+)
+from atlas.modules.finance.contracts import (
+    FinanceConflictError,
+    FinanceNotAuthorisedError,
+    FinanceNotFoundError,
+)
+from atlas.modules.land.contracts import (
+    LandConflictError,
+    LandNotAuthorisedError,
+    LandNotFoundError,
+)
+from atlas.modules.organization.contracts import ConflictError, NotAuthorisedError, NotFoundError
+from atlas.modules.project_controls.contracts import (
+    ProjectControlsConflictError,
+    ProjectControlsNotAuthorisedError,
+    ProjectControlsNotFoundError,
+)
+from atlas.modules.reporting.contracts import (
+    ReportingConflictError,
+    ReportingNotAuthorisedError,
+    ReportingNotFoundError,
+)
+from atlas.platform.step_up import StepUpRequiredError
+
+
+class UnauthenticatedError(Exception):
+    """Raised when no active opaque session matches the presented token."""
+
+
+def error_body(code: str, message: str, *, details: Any | None = None) -> dict[str, Any]:
+    error: dict[str, Any] = {"code": code, "message": message}
+    if details is not None:
+        error["details"] = details
+    return {"error": error}
+
+
+def install_error_handlers(app: FastAPI) -> None:
+    @app.exception_handler(UnauthenticatedError)
+    async def unauthenticated_handler(request: Request, exc: UnauthenticatedError) -> JSONResponse:
+        return JSONResponse(
+            status_code=401,
+            content=error_body("unauthenticated", "authentication is required"),
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    @app.exception_handler(NotAuthorisedError)
+    @app.exception_handler(DocumentNotAuthorisedError)
+    @app.exception_handler(LandNotAuthorisedError)
+    @app.exception_handler(ComplianceNotAuthorisedError)
+    @app.exception_handler(CommercialNotAuthorisedError)
+    @app.exception_handler(ConstructionNotAuthorisedError)
+    @app.exception_handler(ProjectControlsNotAuthorisedError)
+    @app.exception_handler(ChangeControlNotAuthorisedError)
+    @app.exception_handler(CustomerLifecycleNotAuthorisedError)
+    @app.exception_handler(FinanceNotAuthorisedError)
+    @app.exception_handler(ReportingNotAuthorisedError)
+    @app.exception_handler(AssistantNotAuthorisedError)
+    async def forbidden_handler(request: Request, exc: Exception) -> JSONResponse:
+        return JSONResponse(
+            status_code=403,
+            content=error_body("forbidden", "the session may not perform this action"),
+        )
+
+    @app.exception_handler(NotFoundError)
+    @app.exception_handler(DocumentNotFoundError)
+    @app.exception_handler(LandNotFoundError)
+    @app.exception_handler(ComplianceNotFoundError)
+    @app.exception_handler(CommercialNotFoundError)
+    @app.exception_handler(ConstructionNotFoundError)
+    @app.exception_handler(ProjectControlsNotFoundError)
+    @app.exception_handler(ChangeControlNotFoundError)
+    @app.exception_handler(CustomerLifecycleNotFoundError)
+    @app.exception_handler(FinanceNotFoundError)
+    @app.exception_handler(ReportingNotFoundError)
+    async def not_found_handler(request: Request, exc: Exception) -> JSONResponse:
+        return JSONResponse(status_code=404, content=error_body("not_found", str(exc)))
+
+    @app.exception_handler(ConflictError)
+    @app.exception_handler(DocumentConflictError)
+    @app.exception_handler(LandConflictError)
+    @app.exception_handler(ComplianceConflictError)
+    @app.exception_handler(CommercialConflictError)
+    @app.exception_handler(ConstructionConflictError)
+    @app.exception_handler(ProjectControlsConflictError)
+    @app.exception_handler(ChangeControlConflictError)
+    @app.exception_handler(CustomerLifecycleConflictError)
+    @app.exception_handler(FinanceConflictError)
+    @app.exception_handler(ReportingConflictError)
+    @app.exception_handler(AssistantConflictError)
+    async def conflict_handler(request: Request, exc: Exception) -> JSONResponse:
+        return JSONResponse(status_code=409, content=error_body("conflict", str(exc)))
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+        details = [
+            {"location": list(item["loc"]), "message": item["msg"], "type": item["type"]}
+            for item in exc.errors()
+        ]
+        return JSONResponse(
+            status_code=422,
+            content=error_body("validation_error", "request validation failed", details=details),
+        )
+
+    @app.exception_handler(StepUpRequiredError)
+    async def step_up_handler(request: Request, exc: StepUpRequiredError) -> JSONResponse:
+        return JSONResponse(
+            status_code=403,
+            content=error_body("step_up_required", "fresh passkey verification is required"),
+        )

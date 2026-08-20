@@ -1,0 +1,102 @@
+[project]
+name = "atlas"
+version = "0.1.0"
+description = "Private self-hosted ERP for a multi-entity real estate development group"
+requires-python = ">=3.12,<3.13"
+
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30",
+    "alembic>=1.14",
+    "webauthn>=2.2",
+    "cryptography>=43.0",
+    # Pinned to the reviewed 1.28 series. Imported as `pymupdf`, not the
+    # deprecated `fitz` alias, which warns at runtime and which upstream has
+    # announced it will remove. This buys deprecation-safety, not type safety:
+    # see the mypy override below for why the library stays effectively
+    # untyped either way.
+    "pymupdf>=1.28.2,<1.29",
+    "typer>=0.15",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "httpx>=0.28",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "import-linter>=2.1",
+    "bandit>=1.8",
+    "pip-audit>=2.7",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["atlas"]
+
+# ---------------------------------------------------------------------------
+# Lint / format
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "S", "ASYNC", "RUF"]
+# S101 (assert) is fine in tests; handled by per-file ignores below.
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["S101"]
+"tests/**" = ["S101"]
+# RUF012 wants __table_args__ annotated ClassVar, but SQLAlchemy's
+# DeclarativeBase declares it as an instance variable, so that annotation is an
+# illegal override and mypy rejects it. The linters disagree; mypy is right
+# about the library, so the ruff rule is disabled for the mapping files only.
+"**/models.py" = ["RUF012"]
+
+# ---------------------------------------------------------------------------
+# Type checking
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["webauthn.*"]
+ignore_missing_imports = true
+
+# PyMuPDF ships a py.typed marker but its callables carry no annotations, so
+# taking it at its word makes strict mode reject every call into it as an
+# untyped call in a typed context (20 errors across the preview renderer and
+# its tests). Skipping the import restores the same Any-typed view the
+# deprecated `fitz` alias gave us, without importing a name upstream has
+# announced it will remove.
+[[tool.mypy.overrides]]
+module = ["pymupdf.*"]
+follow_imports = "skip"
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["atlas", "tests"]
+markers = [
+    "unit: pure logic, no database",
+    "integration: requires a live PostgreSQL instance",
+]
+
+[tool.coverage.run]
+source = ["atlas"]
+omit = ["*/tests/*"]
