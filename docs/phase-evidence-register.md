@@ -148,9 +148,12 @@ rest are still open, and they are the ones that matter for a sign-off.
   Still open: "material issuance is serialized against its receipt and rejects
   cumulative quantities above accepted stock", which is a service-level check
   over accumulated rows, not a constraint.
-- **Phase 8** — ~~more than one active booking per unit~~ now covered, both the
-  rejection and the release-on-cancel. Still open: installment and collection
-  over-allocation, and linkage to an unexecuted or wrong-customer contract.
+- **Phase 8** — active-unit double booking, installment-total over-allocation,
+  and collection-to-installment over-allocation are now covered against
+  PostgreSQL. Concurrent installment additions are serialized on the payment
+  plan, proving two individually valid requests cannot jointly exceed its
+  total. Still open: linkage to an unexecuted or wrong-customer contract and
+  broader transaction/version/archive coverage.
 - **Phase 9** — ~~`uq_reconciliation_fact`~~ now covered, including the NULL
   voucher path. Still open: the guard that refuses import when pre-existing
   Tally vouchers are present.
@@ -181,8 +184,8 @@ A fair reading of the evidence:
 - **Phase 2** — re-record with the narrowness noted; two integration tests is
   thin for the size of the phase.
 - **Phases 3-10** — each now has one integration test proving its strongest
-  database-enforced rule. Phases 3 and 4 additionally have one focused
-  service-level transaction slice. This is a real improvement on nothing but
+  database-enforced rule. Phases 3, 4, 8, and 10 additionally have focused
+  service-level or database-boundary slices. This is a real improvement but
   is still materially weaker than Phase 1's coverage. Defensible to re-record
   **scoped to the named rules**: "the unit double-booking guarantee is
   evidenced" is now true; "Phase 8 is verified" is not. The remaining
@@ -206,9 +209,10 @@ explicit rollback atomicity for land-parcel creation;
 purchase-order gate plus issue/audit commit and explicit rollback. Continue
 phase by phase rather than extrapolating either domain's proof to the others.
 
-Next, in rough order of risk: Phase 8's over-allocation checks, Phase 4's
-executed-contract evidence gate, and the remaining phase-by-phase service
-transaction proofs. Phase 10 production replication and refresh scheduling stay
-in the owner-reviewed deployment register rather than being simulated in code.
+Next, in rough order of risk: Phase 4's executed-contract evidence gate, Phase
+9's refusal to import over pre-existing vouchers, Phase 6's cumulative material
+issuance check, and the remaining phase-by-phase service transaction proofs.
+Phase 10 production replication and refresh scheduling stay in the
+owner-reviewed deployment register rather than being simulated in code.
 
 Recorded so the choice is deliberate rather than inherited.

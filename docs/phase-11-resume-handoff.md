@@ -38,6 +38,14 @@ Updated: 2026-08-23 (Asia/Calcutta)
   passed 343 tests against real PostgreSQL with zero skips, Ruff, strict mypy,
   all 25 import contracts, Bandit, pip-audit, and the sole Alembic head. Logical
   replication and scheduled refresh remain open production gates.
+- Phase 8 now has PostgreSQL service evidence for installment and collection
+  over-allocation. Installment creation locks the payment-plan row before its
+  cumulative check; a two-session concurrency test proves only one of two
+  60-of-100 requests succeeds. Sequential installment and collection refusal
+  tests prove rejected attempts leave stored state unchanged and add no audit
+  event. Post-change verification passed 346 tests against real PostgreSQL with
+  zero skips, Ruff, strict mypy over 157 files, all 25 import contracts,
+  Bandit, pip-audit, and the sole Alembic head.
 - Phase 11 remains blocked at the owner-only Blueprint section 25 AI-hosting
   decision. Do not select or implement an inference provider autonomously.
 - Before any staging operation, inspect ignored and untracked files as well as

@@ -465,6 +465,12 @@ instance. None was introduced by Phase 11; all predate it.
 - [ ] Approve payment-plan rounding, installment allocation order, partial and
   excess collections, waivers, overdue timezone, interest/penalty, receipts,
   segregation of collection/allocator roles, and immutable correction entries.
+  Provisional integrity rule implemented 2026-08-23: installment creation locks
+  its payment-plan row before summing active installments, so concurrent
+  requests cannot jointly exceed the plan total. Collection allocation already
+  locks the target installment and refuses cumulative allocation above its
+  amount. PostgreSQL tests cover sequential and concurrent refusal. Owner review
+  remains required for rounding, waivers, excess-funds handling, and corrections.
 - [ ] Select the e-signature provider and approve signer authentication,
   consent, certificate validation, callback verification, timestamp authority,
   evidence retention, revocation, and provider outage/manual fallback policy.

@@ -293,6 +293,11 @@ class CustomerLifecycleService:
             raise CustomerLifecycleNotFoundError(f"payment plan {plan_id} does not exist")
         booking = await self._booking(s, plan.booking_id)
         await self._require(s, actor_user_id, "customer.plan.update", booking.project_id)
+        plan = await s.scalar(
+            select(PaymentPlan).where(PaymentPlan.id == plan_id).with_for_update()
+        )
+        if plan is None or plan.archived_at is not None:
+            raise CustomerLifecycleNotFoundError(f"payment plan {plan_id} does not exist")
         if plan.status != "active" or data.amount <= 0:
             raise CustomerLifecycleConflictError("installment cannot be added")
         existing = await s.scalar(
