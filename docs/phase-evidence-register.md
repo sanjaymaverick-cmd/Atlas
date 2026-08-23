@@ -156,8 +156,9 @@ rest are still open, and they are the ones that matter for a sign-off.
   and collection-to-installment over-allocation are now covered against
   PostgreSQL. Concurrent installment additions are serialized on the payment
   plan, proving two individually valid requests cannot jointly exceed its
-  total. Still open: linkage to an unexecuted or wrong-customer contract and
-  broader transaction/version/archive coverage.
+  total. Booking-contract linkage now has PostgreSQL coverage for wrong project,
+  wrong customer, unexecuted/no-evidence refusal, and valid audited linkage.
+  Broader transaction/version/archive coverage remains open.
 - **Phase 9** — `uq_reconciliation_fact` and the pending-batch pre-existing
   voucher guard are now covered. Validation and voucher import both lock the
   batch row; PostgreSQL tests prove a contaminated pending batch is refused
@@ -216,9 +217,9 @@ explicit rollback atomicity for land-parcel creation;
 purchase-order gate plus issue/audit commit and explicit rollback. Continue
 phase by phase rather than extrapolating either domain's proof to the others.
 
-Next, in rough order of risk: Phase 8's executed customer-contract linkage and
-the remaining phase-by-phase service transaction, concurrency/version, and
-archival proofs.
+Next, continue the remaining phase-by-phase service transaction,
+concurrency/version, and archival proofs, prioritizing workflows that change
+financial, legal, safety, or customer state.
 Phase 10 production replication and refresh scheduling stay in the
 owner-reviewed deployment register rather than being simulated in code.
 

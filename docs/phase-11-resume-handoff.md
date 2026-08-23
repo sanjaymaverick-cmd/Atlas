@@ -66,6 +66,12 @@ Updated: 2026-08-23 (Asia/Calcutta)
   passed 356 tests against real PostgreSQL with zero skips, Ruff, strict mypy
   over 157 files, all 25 import contracts, Bandit, pip-audit, and the sole
   Alembic head.
+- Phase 8 booking-contract linkage now has PostgreSQL service evidence. It
+  refuses wrong-project, wrong-customer, unexecuted, and missing-evidence
+  contracts without creating linkage or audit rows; a matching executed
+  contract commits one audited linkage. Post-change verification passed 361
+  tests against real PostgreSQL with zero skips, Ruff, strict mypy over 157
+  files, all 25 import contracts, Bandit, pip-audit, and the sole Alembic head.
 - Phase 11 remains blocked at the owner-only Blueprint section 25 AI-hosting
   decision. Do not select or implement an inference provider autonomously.
 - Before any staging operation, inspect ignored and untracked files as well as

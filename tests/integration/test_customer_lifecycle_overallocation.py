@@ -14,9 +14,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 
 from atlas.modules.commercial.contracts import CommercialContract
+from atlas.modules.commercial.service import CommercialService
 from atlas.modules.customer_lifecycle.contracts import CustomerLifecycleConflictError
 from atlas.modules.customer_lifecycle.schemas import InstallmentCreate
 from atlas.modules.customer_lifecycle.service import CustomerLifecycleService
+from atlas.modules.documents.service import DocumentsService
 from atlas.modules.identity.contracts import IdentityContract
 from atlas.modules.organization.contracts import OrganizationContract
 
@@ -68,6 +70,15 @@ def _service(identity: AllowAllIdentity) -> CustomerLifecycleService:
         cast(IdentityContract, identity),
         cast(OrganizationContract, UnusedDependency()),
         cast(CommercialContract, UnusedDependency()),
+    )
+
+
+def _link_service(identity: AllowAllIdentity) -> CustomerLifecycleService:
+    commercial = CommercialService(identity, DocumentsService(identity))
+    return CustomerLifecycleService(
+        cast(IdentityContract, identity),
+        cast(OrganizationContract, UnusedDependency()),
+        commercial,
     )
 
 
@@ -178,6 +189,103 @@ async def _seed_customer_plan(session: AsyncSession) -> tuple[UUID, UUID, UUID, 
 
 async def _audit_count(session: AsyncSession) -> int:
     return int((await session.scalar(text("SELECT COUNT(*) FROM audit.audit_events"))) or 0)
+
+
+async def _seed_contract_for_booking(
+    session: AsyncSession,
+    *,
+    actor_id: UUID,
+    booking_id: UUID,
+    project_matches: bool,
+    customer_matches: bool,
+    status: str,
+    with_evidence: bool,
+) -> UUID:
+    booking = (
+        await session.execute(
+            text(
+                "SELECT b.project_id, b.customer_id, p.legal_entity_id "
+                "FROM customers.bookings b "
+                "JOIN organization.projects p ON p.id = b.project_id "
+                "WHERE b.id = :id"
+            ),
+            {"id": booking_id},
+        )
+    ).one()
+    project_id, customer_id, entity_id = booking
+    if not project_matches:
+        project_id = uuid4()
+        await session.execute(
+            text(
+                "INSERT INTO organization.projects "
+                "(id, legal_entity_id, name, code, status, version) "
+                "VALUES (:id, :entity_id, 'Synthetic Other Project', :code, 'active', 1)"
+            ),
+            {"id": project_id, "entity_id": entity_id, "code": f"SYN-OTHER-{project_id}"},
+        )
+    if not customer_matches:
+        customer_id = uuid4()
+        await session.execute(
+            text(
+                "INSERT INTO organization.parties "
+                "(id, party_type, legal_name, status, version) "
+                "VALUES (:id, 'customer', 'Synthetic Other Customer', 'active', 1)"
+            ),
+            {"id": customer_id},
+        )
+
+    document_id: UUID | None = None
+    if with_evidence:
+        document_id, revision_id = uuid4(), uuid4()
+        await session.execute(
+            text(
+                "INSERT INTO documents.documents "
+                "(id, project_id, document_type, classification, status, created_by, "
+                "updated_by, version) VALUES "
+                "(:id, :project_id, 'executed_contract', 'restricted', 'approved', "
+                ":actor_id, :actor_id, 1)"
+            ),
+            {"id": document_id, "project_id": project_id, "actor_id": actor_id},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO documents.document_versions "
+                "(id, document_id, revision_code, object_storage_key, checksum_sha256, "
+                "status, author_id) VALUES "
+                "(:id, :document_id, 'SYN-1', :object_key, :checksum, 'approved', :actor_id)"
+            ),
+            {
+                "id": revision_id,
+                "document_id": document_id,
+                "object_key": f"synthetic/customer-contracts/{revision_id}.pdf",
+                "checksum": "d" * 64,
+                "actor_id": actor_id,
+            },
+        )
+
+    contract_id = uuid4()
+    await session.execute(
+        text(
+            "INSERT INTO contracts.contracts "
+            "(id, project_id, party_id, contract_type, value, status, execution_method, "
+            "executed_at, executed_document_id, created_by, updated_by, version) VALUES "
+            "(:id, :project_id, :party_id, 'customer_sale', 100, :status, "
+            ":method, CASE WHEN :executed THEN now() ELSE NULL END, :document_id, "
+            ":actor_id, :actor_id, 5)"
+        ),
+        {
+            "id": contract_id,
+            "project_id": project_id,
+            "party_id": customer_id,
+            "status": status,
+            "method": "synthetic-esign" if status == "executed" else None,
+            "executed": status == "executed",
+            "document_id": document_id,
+            "actor_id": actor_id,
+        },
+    )
+    await session.commit()
+    return contract_id
 
 
 async def test_installments_cannot_exceed_plan_total(
@@ -298,3 +406,77 @@ async def test_collection_allocation_cannot_exceed_installment(
         ).one()
         assert tuple(state) == ("received", 1)
         assert await _audit_count(session) == 0
+
+
+@pytest.mark.parametrize(
+    ("project_matches", "customer_matches", "status", "with_evidence"),
+    [
+        (False, True, "executed", True),
+        (True, False, "executed", True),
+        (True, True, "approved", False),
+        (True, True, "executed", False),
+    ],
+)
+async def test_booking_refuses_invalid_contract_linkage(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    project_matches: bool,
+    customer_matches: bool,
+    status: str,
+    with_evidence: bool,
+) -> None:
+    async with session_factory() as session:
+        actor_id, booking_id, _, _ = await _seed_customer_plan(session)
+        contract_id = await _seed_contract_for_booking(
+            session,
+            actor_id=actor_id,
+            booking_id=booking_id,
+            project_matches=project_matches,
+            customer_matches=customer_matches,
+            status=status,
+            with_evidence=with_evidence,
+        )
+
+        with pytest.raises(CustomerLifecycleConflictError):
+            await _link_service(AllowAllIdentity()).link_executed_contract(
+                session,
+                actor_user_id=actor_id,
+                booking_id=booking_id,
+                contract_id=contract_id,
+            )
+        await session.rollback()
+
+        linked = await session.scalar(
+            text("SELECT COUNT(*) FROM customers.booking_contracts WHERE booking_id = :id"),
+            {"id": booking_id},
+        )
+        assert linked == 0
+        assert await _audit_count(session) == 0
+
+
+async def test_booking_links_matching_executed_contract_with_one_audit(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        actor_id, booking_id, _, _ = await _seed_customer_plan(session)
+        contract_id = await _seed_contract_for_booking(
+            session,
+            actor_id=actor_id,
+            booking_id=booking_id,
+            project_matches=True,
+            customer_matches=True,
+            status="executed",
+            with_evidence=True,
+        )
+
+        linked = await _link_service(AllowAllIdentity()).link_executed_contract(
+            session,
+            actor_user_id=actor_id,
+            booking_id=booking_id,
+            contract_id=contract_id,
+        )
+        await session.commit()
+
+        assert linked.booking_id == booking_id
+        assert linked.contract_id == contract_id
+        assert await _audit_count(session) == 1

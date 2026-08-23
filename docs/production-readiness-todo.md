@@ -485,6 +485,11 @@ instance. None was introduced by Phase 11; all predate it.
 - [ ] Select the e-signature provider and approve signer authentication,
   consent, certificate validation, callback verification, timestamp authority,
   evidence retention, revocation, and provider outage/manual fallback policy.
+  Evidence update 2026-08-23: booking linkage fails closed unless the Commercial
+  contract belongs to the same project and customer, is executed, and carries
+  controlled execution evidence. PostgreSQL tests cover wrong-project,
+  wrong-customer, unexecuted, missing-evidence, and valid audited linkage.
+  Provider authenticity and certificate validation remain owner-gated.
 - [ ] Approve registration and possession prerequisites, government reference
   handling, snag clearance, customer acceptance, handover evidence, key/access
   credential transfer, and independent authorization for final handover.
