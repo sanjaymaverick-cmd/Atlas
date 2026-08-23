@@ -92,6 +92,14 @@ Updated: 2026-08-23 (Asia/Calcutta)
   closed. Post-change verification passed 374 tests against real PostgreSQL
   with zero skips, Ruff, strict mypy over 157 files, all 25 import contracts,
   Bandit, pip-audit, and the sole Alembic head.
+- Phase 5 inspection and snag evidence now use the same published Documents
+  boundary. Inspection completion locks the inspection row, deduplicates
+  evidence IDs, and atomically commits or rolls back final state, evidence, and
+  a privacy-minimized audit event; concurrent finalization produces one winner.
+  Snags refuse uncontrolled evidence before mutation. Post-change verification
+  passed 384 tests against real PostgreSQL with zero skips, Ruff, strict mypy
+  over 157 files, all 25 import contracts, Bandit, pip-audit, and the sole
+  Alembic head.
 - Phase 11 remains blocked at the owner-only Blueprint section 25 AI-hosting
   decision. Do not select or implement an inference provider autonomously.
 - Before any staging operation, inspect ignored and untracked files as well as

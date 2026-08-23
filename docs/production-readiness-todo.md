@@ -396,6 +396,11 @@ instance. None was introduced by Phase 11; all predate it.
   quarantined, cross-project, archived, missing, unauthorised, and unconfigured
   validation fail closed. Confirm whether `virus_scanned` alone is sufficient
   for submitted progress, or whether reviewer approval must be mandatory.
+  The same provisional rule now applies to inspection and snag evidence.
+  Inspection completion serializes on the inspection row and deduplicates
+  repeated document IDs. Confirm required evidence types/counts per checklist,
+  whether `under_review` evidence may support final completion, and whether a
+  failed inspection or critical snag requires independent review or step-up.
 - [ ] Review provisional progress invariants: percentage is 0–100, one update
   per activity/date, schedule dates cannot run backwards, and progress evidence
   remains immutable after submission.

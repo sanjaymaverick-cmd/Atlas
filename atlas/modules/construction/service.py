@@ -186,6 +186,51 @@ class ConstructionService:
             after_state=after,
         )
 
+    async def _require_controlled_evidence(
+        self,
+        session: AsyncSession,
+        *,
+        actor_user_id: UUID,
+        project_id: UUID,
+        document_ids: tuple[UUID, ...],
+        purpose: str,
+    ) -> tuple[UUID, ...]:
+        unique_ids = tuple(dict.fromkeys(document_ids))
+        if not unique_ids:
+            return unique_ids
+        if self._documents is None:
+            raise ConstructionConflictError(
+                f"{purpose} requires verifiable controlled document evidence"
+            )
+        for document_id in unique_ids:
+            try:
+                document = await self._documents.get_document(
+                    session,
+                    actor_user_id=actor_user_id,
+                    document_id=document_id,
+                )
+                revisions = await self._documents.list_revisions(
+                    session,
+                    actor_user_id=actor_user_id,
+                    document_id=document_id,
+                )
+            except (DocumentNotFoundError, DocumentNotAuthorisedError) as exc:
+                raise ConstructionConflictError(
+                    f"{purpose} requires verifiable controlled document evidence"
+                ) from exc
+            if (
+                document.project_id != project_id
+                or document.archived_at is not None
+                or not any(
+                    revision.status in {"virus_scanned", "under_review", "approved", "issued"}
+                    for revision in revisions
+                )
+            ):
+                raise ConstructionConflictError(
+                    f"{purpose} requires malware-cleared evidence from its project"
+                )
+        return unique_ids
+
     async def create_activity(
         self, session: AsyncSession, *, actor_user_id: UUID, data: ScheduleCreate
     ) -> ScheduleSummary:
@@ -294,36 +339,13 @@ class ConstructionService:
             project_id=activity.project_id,
         )
         if data.evidence_document_id is not None:
-            if self._documents is None:
-                raise ConstructionConflictError(
-                    "progress requires verifiable controlled document evidence"
-                )
-            try:
-                document = await self._documents.get_document(
-                    session,
-                    actor_user_id=actor_user_id,
-                    document_id=data.evidence_document_id,
-                )
-                revisions = await self._documents.list_revisions(
-                    session,
-                    actor_user_id=actor_user_id,
-                    document_id=data.evidence_document_id,
-                )
-            except (DocumentNotFoundError, DocumentNotAuthorisedError) as exc:
-                raise ConstructionConflictError(
-                    "progress requires verifiable controlled document evidence"
-                ) from exc
-            if (
-                document.project_id != activity.project_id
-                or document.archived_at is not None
-                or not any(
-                    revision.status in {"virus_scanned", "under_review", "approved", "issued"}
-                    for revision in revisions
-                )
-            ):
-                raise ConstructionConflictError(
-                    "progress requires malware-cleared evidence from its project"
-                )
+            await self._require_controlled_evidence(
+                session,
+                actor_user_id=actor_user_id,
+                project_id=activity.project_id,
+                document_ids=(data.evidence_document_id,),
+                purpose="progress",
+            )
         latest = await session.scalar(
             select(ProgressUpdate)
             .where(
@@ -716,7 +738,9 @@ class ConstructionService:
         inspection_id: UUID,
         data: InspectionCompletion,
     ) -> InspectionSummary:
-        row = await session.get(Inspection, inspection_id)
+        row = await session.scalar(
+            select(Inspection).where(Inspection.id == inspection_id).with_for_update()
+        )
         if row is None:
             raise ConstructionNotFoundError(f"inspection {inspection_id} does not exist")
         await self._require(
@@ -731,6 +755,13 @@ class ConstructionService:
             raise ConstructionConflictError("inspection result must be pass or fail")
         if row.inspector_id is not None and row.inspector_id != actor_user_id:
             raise ConstructionNotAuthorisedError("only assigned inspector may complete inspection")
+        evidence_document_ids = await self._require_controlled_evidence(
+            session,
+            actor_user_id=actor_user_id,
+            project_id=row.project_id,
+            document_ids=data.evidence_document_ids,
+            purpose="inspection completion",
+        )
         before = {"result": row.result, "status": row.status, "version": row.version}
         row.result = data.result
         row.notes = data.notes
@@ -738,7 +769,7 @@ class ConstructionService:
         row.updated_at = datetime.now(UTC)
         row.updated_by = actor_user_id
         row.version += 1
-        for document_id in dict.fromkeys(data.evidence_document_ids):
+        for document_id in evidence_document_ids:
             session.add(
                 InspectionEvidence(
                     id=uuid4(),
@@ -764,7 +795,7 @@ class ConstructionService:
             after={
                 "result": row.result,
                 "status": row.status,
-                "evidence_count": len(set(data.evidence_document_ids)),
+                "evidence_count": len(evidence_document_ids),
                 "version": row.version,
             },
         )
@@ -781,6 +812,14 @@ class ConstructionService:
             permission="quality.snag.create",
             project_id=data.project_id,
         )
+        if data.evidence_document_id is not None:
+            await self._require_controlled_evidence(
+                session,
+                actor_user_id=actor_user_id,
+                project_id=data.project_id,
+                document_ids=(data.evidence_document_id,),
+                purpose="snag",
+            )
         now = datetime.now(UTC)
         status = "assigned" if data.assigned_to else "open"
         row = SnagItem(
