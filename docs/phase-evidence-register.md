@@ -10,9 +10,10 @@ and an explicit rollback is proved to remove both the parcel and its audit
 event. This closes that invariant for Phase 3 only; it does not imply the same
 coverage for Phases 4-10.
 
-The post-change full suite passed with **337 tests and zero skips** against the
-real disposable PostgreSQL 16 database. This count includes newer authenticated
-read/UI coverage added after the original 2026-08-18 count below.
+The latest post-change full suite passed with **365 tests and zero skips**
+against the real disposable PostgreSQL 16 database. This count includes newer
+authenticated read/UI and phase-specific service coverage added after the
+original 2026-08-18 count below.
 
 This document records **what the test suite actually evidences, per phase**, so
 that a sign-off is made against a concrete list rather than against "the suite
@@ -146,6 +147,13 @@ rest are still open, and they are the ones that matter for a sign-off.
   archived/unapproved, or revision-less evidence; the valid controlled-evidence
   path and same-transaction audit commit are covered too. Broader
   concurrency/versioning and archival evidence remains open for the phase.
+- **Phase 5** — EHS incident transitions now lock the incident row, enforce the
+  ordered state machine, and refuse closure unless corrective action is already
+  recorded. PostgreSQL tests prove invalid-transition refusal, serialized
+  concurrent assignment, same-transaction audit commit/rollback, and that
+  incident narratives and corrective-action text are excluded from the audit
+  payload. Jurisdiction-specific escalation, notification, retention, and
+  close-authority policy remain owner/adviser gates.
 - **Phase 6** — the composite `(id, project_id)` foreign keys and cumulative
   material-issuance guard are now covered. A two-session PostgreSQL test proves
   the second issuer blocks on the receipt lock and only one competing 60-of-100
@@ -178,8 +186,9 @@ rest are still open, and they are the ones that matter for a sign-off.
   the same transaction*, optimistic versioning holds under concurrency, and
   archival replaces deletion. Phase 1 proves these for
   `organization.projects`; Phase 3 proves commit/rollback atomicity for
-  `land.land_parcels`; Phase 4 now proves it for purchase-order issuance. The
-  other domain-invariant tests exercise constraints directly and deliberately
+  `land.land_parcels`; Phase 4 proves it for purchase-order issuance, and Phase
+  5 proves it for EHS corrective-action assignment. The other domain-invariant
+  tests exercise constraints directly and deliberately
   bypass the service layer where these guarantees live. Concurrency/versioning
   and archival coverage outside Phase 1 also remain open.
 

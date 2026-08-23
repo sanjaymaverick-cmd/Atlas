@@ -376,6 +376,13 @@ instance. None was introduced by Phase 11; all predate it.
 - [ ] EHS fatality/major-incident handling requires jurisdiction-specific
   escalation, regulator notification, legal hold, investigation ownership, and
   tamper-evident evidence procedures approved by qualified advisers.
+  Provisional integrity/privacy controls implemented 2026-08-23: incident
+  transitions serialize on the incident row, follow the ordered state machine,
+  and cannot close without recorded corrective action. Audit events record only
+  severity, status, version, and whether corrective action exists; they exclude
+  the incident narrative and corrective-action text. Confirm the allowed close
+  roles, step-up/independent-approval requirements, severity taxonomy, and
+  retention/disclosure rules before production use.
 - [ ] Approve inspection template governance, required evidence types,
   inspector independence, failed-inspection/NCR escalation, snag severity/SLA,
   rectification verification, and close authority.

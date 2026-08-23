@@ -481,7 +481,9 @@ class ConstructionService:
         target_status: str,
         corrective_action: str | None = None,
     ) -> EhsSummary:
-        row = await session.get(EhsIncident, incident_id)
+        row = await session.scalar(
+            select(EhsIncident).where(EhsIncident.id == incident_id).with_for_update()
+        )
         if row is None:
             raise ConstructionNotFoundError(f"EHS incident {incident_id} does not exist")
         await self._require(
@@ -498,6 +500,8 @@ class ConstructionService:
             )
         if target_status == "corrective_action_assigned" and not corrective_action:
             raise ConstructionConflictError("corrective action is required")
+        if target_status == "closed" and not row.corrective_action:
+            raise ConstructionConflictError("EHS incident cannot close without corrective action")
         before = {"status": row.status, "version": row.version}
         row.status = target_status
         if corrective_action:

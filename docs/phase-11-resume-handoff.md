@@ -72,6 +72,13 @@ Updated: 2026-08-23 (Asia/Calcutta)
   contract commits one audited linkage. Post-change verification passed 361
   tests against real PostgreSQL with zero skips, Ruff, strict mypy over 157
   files, all 25 import contracts, Bandit, pip-audit, and the sole Alembic head.
+- Phase 5 EHS transitions now lock the incident row and refuse closure without
+  recorded corrective action. PostgreSQL tests prove invalid-transition and
+  missing-action refusal, serialized concurrent assignment, atomic audit
+  commit/rollback, and exclusion of incident narrative and corrective-action
+  text from audit payloads. Post-change verification passed 365 tests against
+  real PostgreSQL with zero skips, Ruff, strict mypy over 157 files, all 25
+  import contracts, Bandit, pip-audit, and the sole Alembic head.
 - Phase 11 remains blocked at the owner-only Blueprint section 25 AI-hosting
   decision. Do not select or implement an inference provider autonomously.
 - Before any staging operation, inspect ignored and untracked files as well as
