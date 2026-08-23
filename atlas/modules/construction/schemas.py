@@ -172,6 +172,26 @@ class TemplateSummary:
 
 
 @dataclass(frozen=True, slots=True)
+class TemplateUpdate:
+    work_package: str
+    template_name: str
+    checklist: tuple[ChecklistItem, ...]
+    expected_version: int
+
+
+@dataclass(frozen=True, slots=True)
+class TemplateDraftSummary:
+    id: UUID
+    project_id: UUID
+    work_package: str
+    template_name: str
+    checklist: tuple[ChecklistItem, ...]
+    status: str
+    version: int
+    archived_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
 class InspectionCreate:
     project_id: UUID
     template_id: UUID | None

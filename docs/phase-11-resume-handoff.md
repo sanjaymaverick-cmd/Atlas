@@ -147,6 +147,22 @@ Updated: 2026-08-23 (Asia/Calcutta)
   `0014_phase5_meeting_integrity`. Phase 5 is still not complete: implement and
   verify the dedicated mobile-first offline Site Diary and no-code QA/QC
   template-builder experiences next.
+- Phase 5 now includes both dedicated Blueprint field experiences. The
+  mobile-first Site Diary captures the full structured diary contract,
+  AES-256-GCM encrypts payloads before IndexedDB storage with a non-extractable
+  browser key, never stores a bearer token with drafts, deletes only after a
+  successful foreground sync, and retains client conflicts for review. The
+  no-code QA/QC builder creates, reloads, expected-version updates, and
+  activates project checklist drafts without moving business rules into the
+  browser. Draft updates row-lock, reject stale versions and non-draft/global
+  templates, and keep checklist contents out of audit payloads. The web CI gate
+  now runs a clean install, 6 Vitest tests, the production TypeScript/Vite
+  build, and npm audit. Responsive render checks passed at 1440 px and 390 px
+  without console errors or document overflow. Post-change verification passed
+  440 tests against real PostgreSQL with zero skips, Ruff lint/format, strict
+  mypy over 157 files, and all 25 import contracts. Production security,
+  retention, remote-wipe, device-binding, and template-governance decisions
+  remain explicit owner-review items in `docs/production-readiness-todo.md`.
 - Phase 11 remains blocked at the owner-only Blueprint section 25 AI-hosting
   decision. Do not select or implement an inference provider autonomously.
 - Before any staging operation, inspect ignored and untracked files as well as

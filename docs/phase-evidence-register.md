@@ -193,9 +193,15 @@ rest are still open, and they are the ones that matter for a sign-off.
   tests cover commit/rollback, minimized audit payloads, idempotent archival,
   concurrent create-versus-close, and the composite project foreign key.
   Canonical DDL and sole migration head `0014_phase5_meeting_integrity` are
-  equivalent from an empty database. This strengthens the service evidence but
-  does not complete the Blueprint phase: the mobile-first offline diary client
-  and no-code QA/QC template-builder experience remain open.
+  equivalent from an empty database. The two explicit Blueprint UX carryovers
+  are now implemented too. The Site Diary browser encrypts payloads before
+  IndexedDB storage, retains conflicts without silent overwrite, deletes only
+  after successful foreground sync, stores no session token with drafts, and
+  uses an API-excluding runtime shell cache. The no-code QA/QC builder supports
+  dynamic checklist/evidence rows, project-draft reload/edit with expected
+  versions, and activation. Browser tests cover encrypted-at-rest structure,
+  non-extractable keys, sync retention/removal, privacy-minimized capture, and
+  version-aware builder updates; production build and npm audit are CI gates.
 - **Phase 6** — the composite `(id, project_id)` foreign keys and cumulative
   material-issuance guard are now covered. A two-session PostgreSQL test proves
   the second issuer blocks on the receipt lock and only one competing 60-of-100

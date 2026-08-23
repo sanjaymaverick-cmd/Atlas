@@ -27,8 +27,9 @@ npm install
 npm run dev
 ```
 
+`npm run test` runs the browser/component and encrypted offline-queue tests.
 `npm run typecheck` runs TypeScript alone; `npm run build` typechecks and then
-builds.
+builds. `npm audit --audit-level=moderate` is a required CI security gate.
 
 ## Signing in for testing
 
@@ -100,6 +101,7 @@ src/
   auth/AuthContext     session state for the app
   context/ScopeContext legal entity + project, chosen once and shared
   components/          shell, DataTable, ActionForm, ScopeBar
+  offline/             encrypted IndexedDB Site Diary queue and foreground sync
   hooks/useResource    one GET endpoint, with loading and error states
   screens/             one file per screen
   workflows/catalog    every write for the modules that expose no reads
@@ -111,6 +113,18 @@ Six modules — change control, compliance, construction and quality, customer
 lifecycle, finance and project controls — used to publish writes and no reads
 at all, so this screen was forms only. They gained 22 list endpoints on
 2026-08-20 and it now shows registers first, operations second.
+
+Phase 5 additionally has two dedicated experiences that do not fit the generic
+flat action form:
+
+- **Mobile Site Diary.** Draft payloads are AES-GCM encrypted before IndexedDB
+  storage with a non-extractable browser key. Only minimal queue metadata stays
+  clear. Sync runs in the foreground while signed in; no bearer token is stored
+  with a draft. Successful submission removes a draft, while validation or
+  conflict responses retain it for explicit review.
+- **QA/QC template builder.** Users add/remove checklist rows and evidence
+  requirements without writing JSON. Project drafts can be reloaded and edited
+  using an expected version; activation makes them immutable to the builder.
 
 Two rough edges remain, both API-shaped rather than UI-shaped:
 
@@ -140,8 +154,8 @@ out-of-band device-approval step. There is nothing for such a library to do.
   httpOnly cookie would be stronger but needs a backend change. Recorded for
   owner review in `docs/production-readiness-todo.md`.
 - **Coverage is uneven, because the API is.** Projects, documents, land,
-  budgets and dashboards have real screens with tables. The six read-less
-  modules have workflow forms only. Documents intentionally omits binary
+  budgets and dashboards have real screens with tables. Other modules use
+  register and workflow surfaces rather than full detail pages. Documents intentionally omits binary
   upload, watermarked preview and the four-eyes export flow — those need file
   handling, a sandboxed viewer and a fresh passkey step-up, and a half-built
   export is worse than none, since an export is a controlled release of
@@ -150,5 +164,6 @@ out-of-band device-approval step. There is nothing for such a library to do.
   return 500 until `REFRESH MATERIALIZED VIEW reporting.mv_ceo_project_summary`
   has run, and the reporting database expects logical replication that is not
   configured. Recorded in `docs/production-readiness-todo.md`.
-- **No tests.** The API client and the base64url conversions in `passkey.ts` are
-  the two pieces most worth covering, and neither is covered.
+- **Passkey helper coverage remains open.** Phase 5 component behavior and the
+  encrypted offline queue are tested, but the API client and base64url
+  conversions in `passkey.ts` still need direct browser tests.

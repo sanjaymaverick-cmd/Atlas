@@ -5,7 +5,7 @@
 # container; see docs/local-postgres.md for a rootless local setup that needs
 # neither Docker nor sudo.
 
-.PHONY: help install lint types boundaries test test-unit test-integration check clean
+.PHONY: help install lint types boundaries test test-unit test-integration web-check check clean
 
 # On WSL with the repo on a Windows drive (/mnt/...), keep the virtualenv on the
 # Linux filesystem. DrvFs per-file latency makes importing a large package like
@@ -41,7 +41,13 @@ test-integration: ## Integration tests; requires ATLAS_TEST_DATABASE_URL
 test: ## Full suite
 	$(PY) -m pytest
 
-check: lint types boundaries test ## Everything CI runs
+web-check: ## Web tests, production build and dependency audit
+	cd web && npm ci
+	cd web && npm run test
+	cd web && npm run build
+	cd web && npm audit --audit-level=moderate
+
+check: lint types boundaries test web-check ## Everything CI runs
 
 clean:
 	rm -rf .pytest_cache .mypy_cache .ruff_cache .coverage

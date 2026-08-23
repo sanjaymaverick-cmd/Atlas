@@ -28,6 +28,7 @@ from atlas.modules.construction.models import (
     SnagItem,
 )
 from atlas.modules.construction.schemas import (
+    ChecklistItem,
     EhsCreate,
     EhsSummary,
     InspectionCompletion,
@@ -46,7 +47,9 @@ from atlas.modules.construction.schemas import (
     SnagCreate,
     SnagSummary,
     TemplateCreate,
+    TemplateDraftSummary,
     TemplateSummary,
+    TemplateUpdate,
 )
 from atlas.modules.documents.contracts import (
     DocumentNotAuthorisedError,
@@ -134,6 +137,24 @@ def ehs_summary(r: EhsIncident) -> EhsSummary:
 def template_summary(r: InspectionTemplate) -> TemplateSummary:
     return TemplateSummary(
         r.id, r.project_id, r.work_package, r.template_name, r.status, r.version, r.archived_at
+    )
+
+
+def template_draft_summary(r: InspectionTemplate) -> TemplateDraftSummary:
+    if r.project_id is None:
+        raise ConstructionConflictError("global template is not a project draft")
+    return TemplateDraftSummary(
+        r.id,
+        r.project_id,
+        r.work_package,
+        r.template_name,
+        tuple(
+            ChecklistItem(str(item["item"]), bool(item.get("requires_evidence", False)))
+            for item in r.checklist
+        ),
+        r.status,
+        r.version,
+        r.archived_at,
     )
 
 
@@ -934,15 +955,21 @@ class ConstructionService:
         )
         now = datetime.now(UTC)
         checklist = [
-            {"item": i.item, "requires_evidence": i.requires_evidence} for i in data.checklist
+            {"item": item.item.strip(), "requires_evidence": item.requires_evidence}
+            for item in data.checklist
+            if item.item.strip()
         ]
-        if not checklist:
-            raise ConstructionConflictError("inspection template requires at least one item")
+        if len(checklist) != len(data.checklist) or not checklist:
+            raise ConstructionConflictError("inspection template requires non-blank items")
+        work_package = data.work_package.strip()
+        template_name = data.template_name.strip()
+        if not work_package or not template_name:
+            raise ConstructionConflictError("template name and work package are required")
         row = InspectionTemplate(
             id=uuid4(),
             project_id=data.project_id,
-            work_package=data.work_package,
-            template_name=data.template_name,
+            work_package=work_package,
+            template_name=template_name,
             checklist=checklist,
             status="draft",
             created_at=now,
@@ -1015,6 +1042,76 @@ class ConstructionService:
             after={"status": row.status, "version": row.version},
         )
         return template_summary(row)
+
+    async def update_template_draft(
+        self,
+        session: AsyncSession,
+        *,
+        actor_user_id: UUID,
+        template_id: UUID,
+        data: TemplateUpdate,
+    ) -> TemplateDraftSummary:
+        row = await session.scalar(
+            select(InspectionTemplate).where(InspectionTemplate.id == template_id).with_for_update()
+        )
+        if row is None:
+            raise ConstructionNotFoundError(f"template {template_id} does not exist")
+        await self._require(
+            session,
+            actor=actor_user_id,
+            permission="quality.template.update",
+            project_id=row.project_id,
+        )
+        if row.project_id is None:
+            raise ConstructionConflictError("global templates are not editable in a project")
+        if row.archived_at is not None or row.status != "draft":
+            raise ConstructionConflictError("only an active project draft may be edited")
+        if row.version != data.expected_version:
+            raise ConstructionConflictError("template version is stale")
+        checklist = [
+            {"item": item.item.strip(), "requires_evidence": item.requires_evidence}
+            for item in data.checklist
+            if item.item.strip()
+        ]
+        if len(checklist) != len(data.checklist) or not checklist:
+            raise ConstructionConflictError("inspection template requires non-blank items")
+        before = {
+            "work_package": row.work_package,
+            "template_name": row.template_name,
+            "checklist_item_count": len(row.checklist),
+            "version": row.version,
+        }
+        row.work_package = data.work_package.strip()
+        row.template_name = data.template_name.strip()
+        if not row.work_package or not row.template_name:
+            raise ConstructionConflictError("template name and work package are required")
+        row.checklist = checklist
+        row.updated_at = datetime.now(UTC)
+        row.updated_by = actor_user_id
+        row.version += 1
+        try:
+            await session.flush()
+        except IntegrityError as exc:
+            raise ConstructionConflictError(
+                "template name already exists in this project scope"
+            ) from exc
+        await self._audit(
+            session,
+            actor=actor_user_id,
+            schema="quality",
+            table="inspection_templates",
+            row_id=row.id,
+            action="update",
+            before=before,
+            after={
+                "work_package": row.work_package,
+                "template_name": row.template_name,
+                "checklist_item_count": len(checklist),
+                "status": row.status,
+                "version": row.version,
+            },
+        )
+        return template_draft_summary(row)
 
     async def schedule_inspection(
         self, session: AsyncSession, *, actor_user_id: UUID, data: InspectionCreate
@@ -1583,3 +1680,23 @@ class ConstructionService:
             .order_by(MeetingActionItem.due_date, MeetingActionItem.id)
         )
         return [meeting_action_summary(row) for row in result.scalars()]
+
+    async def list_template_drafts(
+        self, session: AsyncSession, *, actor_user_id: UUID, project_id: UUID
+    ) -> list[TemplateDraftSummary]:
+        await self._require(
+            session,
+            actor=actor_user_id,
+            permission=PERM_QUALITY_READ,
+            project_id=project_id,
+        )
+        result = await session.execute(
+            select(InspectionTemplate)
+            .where(
+                InspectionTemplate.project_id == project_id,
+                InspectionTemplate.status == "draft",
+                InspectionTemplate.archived_at.is_(None),
+            )
+            .order_by(InspectionTemplate.template_name, InspectionTemplate.id)
+        )
+        return [template_draft_summary(row) for row in result.scalars()]

@@ -104,7 +104,7 @@ atlas/
   platform/       cross-cutting: db, secrets, kms, audit chain, access control
   modules/        identity, organization, documents, land, compliance, commercial, audit
   owner_console/  admin CLI
-web/              React + Vite + TypeScript client (Phase 1 slice only)
+web/              React + Vite + TypeScript client and offline Phase 5 tools
 db/schema.sql     canonical PostgreSQL DDL, all domains
 docs/             blueprint, audit report, decision memo, module boundaries
 tests/            integration tests (require a live PostgreSQL)
@@ -112,11 +112,12 @@ tests/            integration tests (require a live PostgreSQL)
 
 ## Web client
 
-`web/` holds a React + Vite + TypeScript client covering authentication and
-projects — the first vertical slice, not the whole ERP. The other ~90 endpoints
-have no UI yet. See `web/README.md` before running it: the WebAuthn origin must
-point at the dev server rather than the API, and a newly enrolled passkey needs
-owner approval from the CLI before it can sign in.
+`web/` holds a React + Vite + TypeScript client covering authentication,
+projects, module registers/workflows, the mobile-first encrypted offline Site
+Diary, and the no-code QA/QC template builder. It is still not the whole ERP.
+See `web/README.md` before running it: the WebAuthn origin must point at the dev
+server rather than the API, and a newly enrolled passkey needs owner approval
+from the CLI before it can sign in.
 
 ## Getting started
 

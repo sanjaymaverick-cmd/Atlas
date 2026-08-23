@@ -213,7 +213,8 @@ code {
   opacity: 0.7;
 }
 .field input,
-.field select {
+.field select,
+.field textarea {
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -223,7 +224,8 @@ code {
   font-size: 14px;
 }
 .field input:focus,
-.field select:focus {
+.field select:focus,
+.field textarea:focus {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
 }
@@ -377,6 +379,11 @@ code {
   opacity: 0.85;
 }
 
+.field textarea {
+  min-height: 6rem;
+  resize: vertical;
+}
+
 .tabs-wrap {
   flex-wrap: wrap;
 }
@@ -488,4 +495,101 @@ tbody tr:hover {
   border: 1px solid var(--info-border);
   color: var(--info-text);
   font-size: 12px;
+}
+
+.pill-ok {
+  color: var(--ok-text);
+  background: var(--ok-bg);
+  border-color: var(--ok-border);
+}
+
+.pill-warn {
+  color: var(--danger-text);
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+}
+.template-draft-row,
+.checklist-editor-row,
+.offline-queue-row,
+.labour-editor-row,
+.material-editor-row {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+}
+
+.template-draft-row > div:first-child {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.offline-queue-row > div:first-child {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.checklist-editor-text {
+  flex: 1;
+}
+
+.labour-editor-row .field,
+.material-editor-row .field {
+  flex: 1;
+}
+
+.material-editor-row .material-id-field {
+  flex: 2;
+}
+
+.check-field {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.5rem;
+}
+
+@media (max-width: 720px) {
+  .topbar {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .topbar-session {
+    margin-left: auto;
+  }
+
+  .topbar-session .muted {
+    display: none;
+  }
+
+  .topbar-nav {
+    flex: 0 0 100%;
+    max-width: 100%;
+    order: 3;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .topbar-nav a {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .content {
+    padding: 18px 12px 36px;
+  }
+
+  .template-draft-row,
+  .checklist-editor-row,
+  .offline-queue-row,
+  .labour-editor-row,
+  .material-editor-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }

@@ -23,10 +23,13 @@ from atlas.modules.compliance.schemas import (
     ComplianceObligationSummary,
 )
 from atlas.modules.construction.schemas import (
+    ChecklistItem,
     MeetingCreate,
     MeetingSummary,
     SiteDiaryCreate,
     SiteDiarySummary,
+    TemplateDraftSummary,
+    TemplateUpdate,
 )
 from atlas.modules.customer_lifecycle.schemas import BookingCreate, BookingSummary
 from atlas.modules.documents.contracts import DocumentConflictError
@@ -386,6 +389,42 @@ class FakeConstruction:
             1,
             None,
         )
+
+    async def update_template_draft(
+        self,
+        session: object,
+        *,
+        actor_user_id: UUID,
+        template_id: UUID,
+        data: TemplateUpdate,
+    ) -> TemplateDraftSummary:
+        self.calls.append(data)
+        return TemplateDraftSummary(
+            template_id,
+            PROJECT_ID,
+            data.work_package,
+            data.template_name,
+            data.checklist,
+            "draft",
+            data.expected_version + 1,
+            None,
+        )
+
+    async def list_template_drafts(
+        self, session: object, *, actor_user_id: UUID, project_id: UUID
+    ) -> list[TemplateDraftSummary]:
+        return [
+            TemplateDraftSummary(
+                uuid4(),
+                project_id,
+                "synthetic",
+                "Synthetic Draft",
+                (ChecklistItem("Synthetic check", True),),
+                "draft",
+                1,
+                None,
+            )
+        ]
 
 
 class FakeProjectControls:
@@ -892,6 +931,29 @@ async def test_phase5_meeting_route_returns_counts_not_private_content() -> None
     assert isinstance(call, MeetingCreate)
     assert call.decisions == ("SYNTHETIC PRIVATE MEETING DECISION",)
     assert sessions.sessions[0].commits == 1
+
+
+async def test_phase5_template_draft_routes_preserve_version_and_checklist_shape() -> None:
+    construction = FakeConstruction()
+    client, _, sessions = build_client(construction=construction)
+    template_id = uuid4()
+    async with client:
+        updated = await client.put(
+            f"/api/v1/inspection-templates/{template_id}",
+            json={
+                "work_package": "synthetic-updated",
+                "template_name": "Synthetic Updated Draft",
+                "checklist": [{"item": "Synthetic updated check", "requires_evidence": True}],
+                "expected_version": 3,
+            },
+        )
+        listed = await client.get(f"/api/v1/projects/{PROJECT_ID}/inspection-template-drafts")
+    assert updated.status_code == 200 and updated.json()["version"] == 4
+    assert updated.json()["checklist"][0]["requires_evidence"] is True
+    assert listed.status_code == 200 and listed.json()[0]["status"] == "draft"
+    call = construction.calls[0]
+    assert isinstance(call, TemplateUpdate) and call.expected_version == 3
+    assert [session.commits for session in sessions.sessions] == [1, 1]
 
 
 async def test_phase6_bim_route_accepts_document_id_not_storage_reference() -> None:

@@ -28,7 +28,9 @@ from atlas.api.construction_schemas import (
     SnagCreateRequest,
     SnagResponse,
     TemplateCreateRequest,
+    TemplateDraftResponse,
     TemplateResponse,
+    TemplateUpdateRequest,
     TransitionRequest,
 )
 from atlas.api.dependencies import ApiServices, get_current_session, get_services, get_session
@@ -234,6 +236,25 @@ async def transition_template(
     )
 
 
+@router.put("/inspection-templates/{template_id}", response_model=TemplateDraftResponse)
+async def update_template_draft(
+    template_id: UUID,
+    body: TemplateUpdateRequest,
+    actor: Actor,
+    session: Db,
+    services: Services,
+) -> BaseModel:
+    return response(
+        TemplateDraftResponse,
+        await services.construction.update_template_draft(
+            session,
+            actor_user_id=actor.user_id,
+            template_id=template_id,
+            data=body.to_dto(),
+        ),
+    )
+
+
 @router.post(
     "/projects/{project_id}/inspections",
     response_model=InspectionResponse,
@@ -414,6 +435,7 @@ InspectionListResponse = _list_of(InspectionResponse)
 SnagListResponse = _list_of(SnagResponse)
 MeetingListResponse = _list_of(MeetingResponse)
 MeetingActionListResponse = _list_of(MeetingActionResponse)
+TemplateDraftListResponse = _list_of(TemplateDraftResponse)
 
 
 # -- reads ------------------------------------------------------------------
@@ -491,3 +513,16 @@ async def list_meeting_actions(
         session, actor_user_id=actor.user_id, meeting_id=meeting_id
     )
     return [response(MeetingActionResponse, row) for row in rows]
+
+
+@router.get(
+    "/projects/{project_id}/inspection-template-drafts",
+    response_model=TemplateDraftListResponse,
+)
+async def list_template_drafts(
+    project_id: UUID, actor: Actor, session: Db, services: Services
+) -> list[BaseModel]:
+    rows = await services.construction.list_template_drafts(
+        session, actor_user_id=actor.user_id, project_id=project_id
+    )
+    return [response(TemplateDraftResponse, row) for row in rows]

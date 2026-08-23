@@ -1,8 +1,10 @@
 import { useState } from "react";
 
 import { ActionForm } from "../components/ActionForm";
+import { OfflineSiteDiary } from "../components/OfflineSiteDiary";
 import { RegisterTable } from "../components/RegisterTable";
 import { ScopeBar } from "../components/ScopeBar";
+import { TemplateBuilder } from "../components/TemplateBuilder";
 import { useScope } from "../context/ScopeContext";
 import { CATALOG, type Workflow } from "../workflows/catalog";
 import { REGISTERS } from "../workflows/registers";
@@ -64,6 +66,13 @@ export function WorkflowsScreen() {
       {group && (
         <>
           <p className="muted">{group.blurb}</p>
+
+          {group.phase === "Phase 5" && (
+            <>
+              <OfflineSiteDiary projectId={projectId} />
+              <TemplateBuilder projectId={projectId} />
+            </>
+          )}
 
           {registers.map((register) => (
             <RegisterTable

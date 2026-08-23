@@ -370,6 +370,20 @@ instance. None was introduced by Phase 11; all predate it.
   local database, device binding, remote wipe/revocation behavior, minimum OS,
   TLS pinning decision, retry limits, clock-skew handling, and maximum offline
   retention must be security-reviewed before real field data is cached.
+  Provisional local implementation added 2026-08-24: Site Diary payloads are
+  AES-256-GCM encrypted before IndexedDB storage with a non-extractable
+  browser-generated key. Cleartext queue metadata is limited to queue UUID,
+  project UUID, queued timestamp, attempt count, state, and minimized error
+  code. Sync runs only in the foreground while an authenticated tab is open;
+  no bearer token is stored with drafts. Network failures remain pending,
+  successful submissions alone delete drafts, and HTTP client errors move a
+  draft to `needs_review` without automatic replay. The service worker caches
+  same-origin shell assets only and explicitly excludes `/api` and `/health`.
+  Owner/security review is still required: browser CryptoKey storage is not a
+  hardware-keystore guarantee, XSS in an authenticated origin can invoke the
+  key, private-mode/storage eviction can lose drafts, and remote wipe, device
+  binding, retention expiry, retry ceilings, cache-version rollout, minimum
+  browser/OS, and field-device UAT are not yet approved.
 - [ ] Classify visitor logs, worker counts, incident narratives, assignees,
   photos, location/unit references, and device timestamps. Define minimization,
   notice/consent, retention, access, export, and incident-reporting rules.
@@ -400,6 +414,13 @@ instance. None was introduced by Phase 11; all predate it.
   that carry both project IDs, while the published Organization contract checks
   inherited location scope and hierarchy consistency. Confirm whether global
   templates should remain enabled and who may publish or retire them.
+  Provisional no-code builder implemented 2026-08-24: project drafts expose
+  structured checklist rows and evidence-required toggles, draft edits lock the
+  row and require an exact expected version, stale concurrent writers fail,
+  checklist content stays out of audit payloads, and activation removes the
+  draft from the editable builder. Confirm template-copy/global-template
+  governance, activation authority, post-activation correction/supersession,
+  checklist content classification, and maximum checklist complexity.
 - [ ] Site photos, certificates, inspection reports, and progress evidence must
   use restricted Documents records. Raw binaries, public URLs, GPS metadata,
   biometric data, and personal identifiers must not be embedded in JSON fields,

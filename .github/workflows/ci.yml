@@ -13,6 +13,25 @@ env:
   UV_LINK_MODE: copy
 
 jobs:
+  web:
+    name: Web tests, build and dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - working-directory: web
+        run: npm ci
+      - working-directory: web
+        run: npm run test
+      - working-directory: web
+        run: npm run build
+      - working-directory: web
+        run: npm audit --audit-level=moderate
+
   lint:
     name: Lint, types and module boundaries
     runs-on: ubuntu-latest

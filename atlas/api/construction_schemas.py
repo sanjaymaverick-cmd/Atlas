@@ -22,6 +22,7 @@ from atlas.modules.construction.schemas import (
     SiteDiaryCreate,
     SnagCreate,
     TemplateCreate,
+    TemplateUpdate,
 )
 
 
@@ -131,7 +132,7 @@ class MeetingActionCreateRequest(BaseModel):
 
 
 class ChecklistItemRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", from_attributes=True)
     item: str = Field(min_length=1, max_length=500)
     requires_evidence: bool = False
 
@@ -149,6 +150,22 @@ class TemplateCreateRequest(BaseModel):
             self.work_package,
             self.template_name,
             tuple(ChecklistItem(v.item, v.requires_evidence) for v in self.checklist),
+        )
+
+
+class TemplateUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    work_package: str = Field(min_length=1, max_length=200)
+    template_name: str = Field(min_length=1, max_length=300)
+    checklist: list[ChecklistItemRequest] = Field(min_length=1, max_length=200)
+    expected_version: int = Field(ge=1)
+
+    def to_dto(self) -> TemplateUpdate:
+        return TemplateUpdate(
+            self.work_package,
+            self.template_name,
+            tuple(ChecklistItem(value.item, value.requires_evidence) for value in self.checklist),
+            self.expected_version,
         )
 
 
@@ -277,6 +294,18 @@ TemplateResponse = response_model(
         "project_id": (UUID | None, ...),
         "work_package": (str, ...),
         "template_name": (str, ...),
+        "status": (str, ...),
+        **AuditFields,
+    },
+)
+TemplateDraftResponse = response_model(
+    "TemplateDraftResponse",
+    {
+        "id": (UUID, ...),
+        "project_id": (UUID, ...),
+        "work_package": (str, ...),
+        "template_name": (str, ...),
+        "checklist": (list[ChecklistItemRequest], ...),
         "status": (str, ...),
         **AuditFields,
     },

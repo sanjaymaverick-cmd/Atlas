@@ -26,7 +26,9 @@ from atlas.modules.construction.schemas import (
     SnagCreate,
     SnagSummary,
     TemplateCreate,
+    TemplateDraftSummary,
     TemplateSummary,
+    TemplateUpdate,
 )
 
 
@@ -95,6 +97,14 @@ class ConstructionContract(Protocol):
     async def transition_template(
         self, session: AsyncSession, *, actor_user_id: UUID, template_id: UUID, target_status: str
     ) -> TemplateSummary: ...
+    async def update_template_draft(
+        self,
+        session: AsyncSession,
+        *,
+        actor_user_id: UUID,
+        template_id: UUID,
+        data: TemplateUpdate,
+    ) -> TemplateDraftSummary: ...
     async def schedule_inspection(
         self, session: AsyncSession, *, actor_user_id: UUID, data: InspectionCreate
     ) -> InspectionSummary: ...
@@ -160,3 +170,6 @@ class ConstructionContract(Protocol):
     async def list_meeting_actions(
         self, session: AsyncSession, *, actor_user_id: UUID, meeting_id: UUID
     ) -> list[MeetingActionSummary]: ...
+    async def list_template_drafts(
+        self, session: AsyncSession, *, actor_user_id: UUID, project_id: UUID
+    ) -> list[TemplateDraftSummary]: ...
