@@ -222,6 +222,88 @@ async def transition_snag(
     )
 
 
+@router.post("/schedule-activities/{activity_id}/archive", response_model=ScheduleResponse)
+async def archive_activity(
+    activity_id: UUID, actor: Actor, session: Db, services: Services
+) -> BaseModel:
+    return response(
+        ScheduleResponse,
+        await services.construction.archive_activity(
+            session, actor_user_id=actor.user_id, activity_id=activity_id
+        ),
+    )
+
+
+@router.post("/progress-updates/{progress_id}/archive", response_model=ProgressResponse)
+async def archive_progress(
+    progress_id: UUID, actor: Actor, session: Db, services: Services
+) -> BaseModel:
+    return response(
+        ProgressResponse,
+        await services.construction.archive_progress(
+            session, actor_user_id=actor.user_id, progress_id=progress_id
+        ),
+    )
+
+
+@router.post("/site-diary/{diary_id}/archive", response_model=SiteDiaryResponse)
+async def archive_site_diary(
+    diary_id: UUID, actor: Actor, session: Db, services: Services
+) -> BaseModel:
+    return response(
+        SiteDiaryResponse,
+        await services.construction.archive_site_diary(
+            session, actor_user_id=actor.user_id, diary_id=diary_id
+        ),
+    )
+
+
+@router.post("/ehs-incidents/{incident_id}/archive", response_model=EhsResponse)
+async def archive_ehs_incident(
+    incident_id: UUID, actor: Actor, session: Db, services: Services
+) -> BaseModel:
+    return response(
+        EhsResponse,
+        await services.construction.archive_ehs_incident(
+            session, actor_user_id=actor.user_id, incident_id=incident_id
+        ),
+    )
+
+
+@router.post("/inspection-templates/{template_id}/archive", response_model=TemplateResponse)
+async def archive_template(
+    template_id: UUID, actor: Actor, session: Db, services: Services
+) -> BaseModel:
+    return response(
+        TemplateResponse,
+        await services.construction.archive_template(
+            session, actor_user_id=actor.user_id, template_id=template_id
+        ),
+    )
+
+
+@router.post("/inspections/{inspection_id}/archive", response_model=InspectionResponse)
+async def archive_inspection(
+    inspection_id: UUID, actor: Actor, session: Db, services: Services
+) -> BaseModel:
+    return response(
+        InspectionResponse,
+        await services.construction.archive_inspection(
+            session, actor_user_id=actor.user_id, inspection_id=inspection_id
+        ),
+    )
+
+
+@router.post("/snags/{snag_id}/archive", response_model=SnagResponse)
+async def archive_snag(snag_id: UUID, actor: Actor, session: Db, services: Services) -> BaseModel:
+    return response(
+        SnagResponse,
+        await services.construction.archive_snag(
+            session, actor_user_id=actor.user_id, snag_id=snag_id
+        ),
+    )
+
+
 # `response_model` takes a runtime value, but these schemas are created at
 # runtime by `response_model()` rather than declared as classes, so mypy cannot
 # read them as types — and `list[X]` is a type expression. Subscripting through

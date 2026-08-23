@@ -91,9 +91,9 @@ passed; CI always runs them against PostgreSQL 16.
 
 ### Next
 
-Complete Phase 4 verification, then begin Phase 5 locally. Real WebAuthn UAT,
-encrypted production object storage, malware-scanner selection, staging, and DR
-provisioning remain pre-launch gates tracked in
+Continue the phase-by-phase service integrity audit after the Phase 5 archival
+slice. Real WebAuthn UAT, encrypted production object storage, malware-scanner
+selection, staging, and DR provisioning remain pre-launch gates tracked in
 `docs/production-readiness-todo.md`.
 
 ## Repository layout
@@ -191,8 +191,11 @@ Phase 5 operations cover schedule activities and progress, offline-idempotent
 site diaries, EHS incidents, inspection templates and executions, document-backed
 evidence, and snag lifecycles under `/api/v1`. Visitor information is accepted as
 a count only; safety narratives and checklist content are excluded from audit
-payloads. PostgreSQL integration tests require `ATLAS_TEST_DATABASE_URL` and are
-reported as skipped—not passed—when it is absent.
+payloads. Archive endpoints are available for all seven Phase 5 record types;
+lifecycle records must reach their terminal state first, repeated archive calls
+are idempotent, and archive/version/audit changes share one transaction.
+PostgreSQL integration tests require `ATLAS_TEST_DATABASE_URL` and are reported
+as skipped—not passed—when it is absent.
 
 Phase 6 operations cover document-backed BIM imports, project CostCode WBS,
 quantity verification/approval, material masters, receipts, and receipt-linked

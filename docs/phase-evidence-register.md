@@ -174,6 +174,13 @@ rest are still open, and they are the ones that matter for a sign-off.
   reject cross-project/archived templates and inconsistent building-floor-unit
   hierarchies through the published Organization contract while preserving
   global templates. Empty-database migration equivalence covers the new DDL.
+  All seven Phase 5 record types now have row-locked, idempotent archival service
+  methods and thin HTTP adapters. Activities, EHS incidents, templates,
+  inspections, and snags must be terminal before archival; progress updates and
+  submitted diaries retain their current state. Parameterized PostgreSQL tests
+  prove one version increment and one minimized valid audit event on commit,
+  no row or audit change on rollback, no duplicate event on retry, and refusal
+  for every nonterminal lifecycle state covered by the service policy.
 - **Phase 6** — the composite `(id, project_id)` foreign keys and cumulative
   material-issuance guard are now covered. A two-session PostgreSQL test proves
   the second issuer blocks on the receipt lock and only one competing 60-of-100
@@ -211,7 +218,7 @@ rest are still open, and they are the ones that matter for a sign-off.
   inspection completion, and activity/template/snag transitions. The other
   domain-invariant tests exercise constraints directly and deliberately
   bypass the service layer where these guarantees live. Concurrency/versioning
-  and archival coverage outside Phase 1 also remain open.
+  coverage and archival coverage outside Phases 1 and 5 remain open.
 
 ## What sign-off is defensible today
 

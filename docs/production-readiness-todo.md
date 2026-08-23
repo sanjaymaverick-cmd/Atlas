@@ -427,6 +427,23 @@ instance. None was introduced by Phase 11; all predate it.
 - [ ] Choose the authoritative project/site business timezone and date rollover
   policy. The local service currently derives automatic transition dates from
   UTC; do not assume UTC calendar dates match the legally relevant site date.
+- [ ] Approve the provisional Phase 5 archival policy implemented 2026-08-23.
+  Activities must be completed, EHS incidents closed, templates retired,
+  inspections completed, and snags closed before archival. Submitted diaries
+  and individual progress updates may be archived without changing lifecycle
+  state. Archival is row-locked, idempotent, versioned, and audited in the same
+  transaction; audit payloads contain only version and archival timestamp.
+  Confirm retention/legal-hold exceptions, whether diary/progress correction
+  needs a supersession workflow, and who may archive each record type.
+- [ ] Grant and review the new least-privilege archive permissions before any
+  non-test deployment: `construction.schedule.archive`,
+  `construction.progress.archive`, `construction.diary.archive`,
+  `construction.ehs.archive`, `quality.template.archive`,
+  `quality.inspection.archive`, and `quality.snag.archive`. No production role
+  assignment is selected in source.
+- [ ] Confirm that archived progress remains part of the monotonic progress
+  history. The service intentionally includes archived updates when checking
+  later percentages, so archival cannot enable a lower replacement value.
 
 ## Phase 6 — BIM, quantities, WBS, and material traceability
 

@@ -68,6 +68,16 @@ SNAG_TRANSITIONS = {
     "verified": frozenset({"closed", "assigned"}),
 }
 
+ArchivableRow = (
+    ScheduleActivity
+    | SiteDiaryEntry
+    | ProgressUpdate
+    | EhsIncident
+    | InspectionTemplate
+    | Inspection
+    | SnagItem
+)
+
 
 def activity_summary(r: ScheduleActivity) -> ScheduleSummary:
     return ScheduleSummary(
@@ -236,6 +246,48 @@ class ConstructionService:
                 )
         return unique_ids
 
+    async def _archive_row(
+        self,
+        session: AsyncSession,
+        *,
+        actor_user_id: UUID,
+        row: ArchivableRow,
+        permission: str,
+        schema: str,
+        table: str,
+        required_status: str | None = None,
+        record_label: str | None = None,
+    ) -> None:
+        await self._require(
+            session,
+            actor=actor_user_id,
+            permission=permission,
+            project_id=row.project_id,
+        )
+        if row.archived_at is not None:
+            return
+        if required_status is not None and getattr(row, "status", None) != required_status:
+            raise ConstructionConflictError(
+                f"only a {required_status} {record_label} may be archived"
+            )
+        before = {"version": row.version, "archived_at": None}
+        archived_at = datetime.now(UTC)
+        row.archived_at = archived_at
+        row.updated_at = archived_at
+        row.updated_by = actor_user_id
+        row.version += 1
+        await session.flush()
+        await self._audit(
+            session,
+            actor=actor_user_id,
+            schema=schema,
+            table=table,
+            row_id=row.id,
+            action="archive",
+            before=before,
+            after={"version": row.version, "archived_at": row.archived_at},
+        )
+
     async def create_activity(
         self, session: AsyncSession, *, actor_user_id: UUID, data: ScheduleCreate
     ) -> ScheduleSummary:
@@ -305,6 +357,8 @@ class ConstructionService:
         )
         if row is None:
             raise ConstructionNotFoundError(f"activity {activity_id} does not exist")
+        if row.archived_at is not None:
+            raise ConstructionConflictError("archived activity cannot transition")
         await self._require(
             session,
             actor=actor_user_id,
@@ -351,6 +405,8 @@ class ConstructionService:
         )
         if activity is None:
             raise ConstructionNotFoundError(f"activity {activity_id} does not exist")
+        if activity.archived_at is not None:
+            raise ConstructionConflictError("archived activity cannot receive progress")
         await self._require(
             session,
             actor=actor_user_id,
@@ -369,7 +425,6 @@ class ConstructionService:
             select(ProgressUpdate)
             .where(
                 ProgressUpdate.schedule_activity_id == activity_id,
-                ProgressUpdate.archived_at.is_(None),
             )
             .order_by(ProgressUpdate.progress_date.desc())
             .limit(1)
@@ -438,6 +493,8 @@ class ConstructionService:
             )
         )
         if existing is not None:
+            if existing.archived_at is not None:
+                raise ConstructionConflictError("archived diary client record cannot be reused")
             if existing.entry_date != data.entry_date:
                 raise ConstructionConflictError(
                     "client record ID was already used for another diary date"
@@ -582,6 +639,8 @@ class ConstructionService:
         )
         if row is None:
             raise ConstructionNotFoundError(f"EHS incident {incident_id} does not exist")
+        if row.archived_at is not None:
+            raise ConstructionConflictError("archived EHS incident cannot transition")
         await self._require(
             session,
             actor=actor_user_id,
@@ -686,6 +745,8 @@ class ConstructionService:
         )
         if row is None:
             raise ConstructionNotFoundError(f"template {template_id} does not exist")
+        if row.archived_at is not None:
+            raise ConstructionConflictError("archived template cannot transition")
         await self._require(
             session,
             actor=actor_user_id,
@@ -728,6 +789,7 @@ class ConstructionService:
             if (
                 template is None
                 or template.archived_at is not None
+                or template.status != "active"
                 or (template.project_id is not None and template.project_id != data.project_id)
             ):
                 raise ConstructionConflictError(
@@ -800,6 +862,8 @@ class ConstructionService:
         )
         if row is None:
             raise ConstructionNotFoundError(f"inspection {inspection_id} does not exist")
+        if row.archived_at is not None:
+            raise ConstructionConflictError("archived inspection cannot be completed")
         await self._require(
             session,
             actor=actor_user_id,
@@ -956,6 +1020,8 @@ class ConstructionService:
         row = await session.scalar(select(SnagItem).where(SnagItem.id == snag_id).with_for_update())
         if row is None:
             raise ConstructionNotFoundError(f"snag {snag_id} does not exist")
+        if row.archived_at is not None:
+            raise ConstructionConflictError("archived snag cannot transition")
         await self._require(
             session,
             actor=actor_user_id,
@@ -985,6 +1051,140 @@ class ConstructionService:
             action="transition",
             before=before,
             after={"status": row.status, "version": row.version},
+        )
+        return snag_summary(row)
+
+    async def archive_activity(
+        self, session: AsyncSession, *, actor_user_id: UUID, activity_id: UUID
+    ) -> ScheduleSummary:
+        row = await session.scalar(
+            select(ScheduleActivity).where(ScheduleActivity.id == activity_id).with_for_update()
+        )
+        if row is None:
+            raise ConstructionNotFoundError(f"activity {activity_id} does not exist")
+        await self._archive_row(
+            session,
+            actor_user_id=actor_user_id,
+            row=row,
+            permission="construction.schedule.archive",
+            schema="construction",
+            table="schedule_activities",
+            required_status="completed",
+            record_label="activity",
+        )
+        return activity_summary(row)
+
+    async def archive_progress(
+        self, session: AsyncSession, *, actor_user_id: UUID, progress_id: UUID
+    ) -> ProgressSummary:
+        row = await session.scalar(
+            select(ProgressUpdate).where(ProgressUpdate.id == progress_id).with_for_update()
+        )
+        if row is None:
+            raise ConstructionNotFoundError(f"progress update {progress_id} does not exist")
+        await self._archive_row(
+            session,
+            actor_user_id=actor_user_id,
+            row=row,
+            permission="construction.progress.archive",
+            schema="construction",
+            table="progress_updates",
+        )
+        return progress_summary(row)
+
+    async def archive_site_diary(
+        self, session: AsyncSession, *, actor_user_id: UUID, diary_id: UUID
+    ) -> SiteDiarySummary:
+        row = await session.scalar(
+            select(SiteDiaryEntry).where(SiteDiaryEntry.id == diary_id).with_for_update()
+        )
+        if row is None:
+            raise ConstructionNotFoundError(f"site diary {diary_id} does not exist")
+        await self._archive_row(
+            session,
+            actor_user_id=actor_user_id,
+            row=row,
+            permission="construction.diary.archive",
+            schema="construction",
+            table="site_diary_entries",
+        )
+        return diary_summary(row)
+
+    async def archive_ehs_incident(
+        self, session: AsyncSession, *, actor_user_id: UUID, incident_id: UUID
+    ) -> EhsSummary:
+        row = await session.scalar(
+            select(EhsIncident).where(EhsIncident.id == incident_id).with_for_update()
+        )
+        if row is None:
+            raise ConstructionNotFoundError(f"EHS incident {incident_id} does not exist")
+        await self._archive_row(
+            session,
+            actor_user_id=actor_user_id,
+            row=row,
+            permission="construction.ehs.archive",
+            schema="construction",
+            table="ehs_incidents",
+            required_status="closed",
+            record_label="EHS incident",
+        )
+        return ehs_summary(row)
+
+    async def archive_template(
+        self, session: AsyncSession, *, actor_user_id: UUID, template_id: UUID
+    ) -> TemplateSummary:
+        row = await session.scalar(
+            select(InspectionTemplate).where(InspectionTemplate.id == template_id).with_for_update()
+        )
+        if row is None:
+            raise ConstructionNotFoundError(f"template {template_id} does not exist")
+        await self._archive_row(
+            session,
+            actor_user_id=actor_user_id,
+            row=row,
+            permission="quality.template.archive",
+            schema="quality",
+            table="inspection_templates",
+            required_status="retired",
+            record_label="template",
+        )
+        return template_summary(row)
+
+    async def archive_inspection(
+        self, session: AsyncSession, *, actor_user_id: UUID, inspection_id: UUID
+    ) -> InspectionSummary:
+        row = await session.scalar(
+            select(Inspection).where(Inspection.id == inspection_id).with_for_update()
+        )
+        if row is None:
+            raise ConstructionNotFoundError(f"inspection {inspection_id} does not exist")
+        await self._archive_row(
+            session,
+            actor_user_id=actor_user_id,
+            row=row,
+            permission="quality.inspection.archive",
+            schema="quality",
+            table="inspections",
+            required_status="completed",
+            record_label="inspection",
+        )
+        return inspection_summary(row)
+
+    async def archive_snag(
+        self, session: AsyncSession, *, actor_user_id: UUID, snag_id: UUID
+    ) -> SnagSummary:
+        row = await session.scalar(select(SnagItem).where(SnagItem.id == snag_id).with_for_update())
+        if row is None:
+            raise ConstructionNotFoundError(f"snag {snag_id} does not exist")
+        await self._archive_row(
+            session,
+            actor_user_id=actor_user_id,
+            row=row,
+            permission="quality.snag.archive",
+            schema="quality",
+            table="snag_items",
+            required_status="closed",
+            record_label="snag",
         )
         return snag_summary(row)
 

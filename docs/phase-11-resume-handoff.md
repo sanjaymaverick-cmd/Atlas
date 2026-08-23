@@ -114,6 +114,16 @@ Updated: 2026-08-23 (Asia/Calcutta)
   against real PostgreSQL with zero skips, empty-database migration equivalence,
   Ruff, strict mypy over 157 files, all 25 import contracts, Bandit, pip-audit,
   and sole Alembic head `0013_phase5_scope_integrity`.
+- Phase 5 archival now covers schedule activities, progress updates, site
+  diaries, EHS incidents, inspection templates, inspections, and snags through
+  published contracts and thin HTTP routes. Archive writes are row-locked,
+  idempotent, versioned, permission-scoped before lifecycle disclosure, and
+  audited in the same transaction with minimized payloads. Terminal-state
+  policy applies to the five lifecycle records; archived progress still counts
+  toward monotonic-history checks. Post-change verification passed 418 tests
+  against real PostgreSQL with zero skips, empty-database migration equivalence,
+  Ruff, strict mypy over 157 files, all 25 import contracts, Bandit, pip-audit,
+  and sole Alembic head `0013_phase5_scope_integrity`.
 - Phase 11 remains blocked at the owner-only Blueprint section 25 AI-hosting
   decision. Do not select or implement an inference provider autonomously.
 - Before any staging operation, inspect ignored and untracked files as well as

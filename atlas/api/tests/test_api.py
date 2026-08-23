@@ -343,7 +343,7 @@ class FakeCommercial:
 
 class FakeConstruction:
     def __init__(self) -> None:
-        self.calls: list[SiteDiaryCreate] = []
+        self.calls: list[object] = []
 
     async def submit_site_diary(
         self, session: object, *, actor_user_id: UUID, data: SiteDiaryCreate
@@ -351,6 +351,20 @@ class FakeConstruction:
         self.calls.append(data)
         return SiteDiarySummary(
             uuid4(), data.project_id, data.entry_date, data.client_record_id, "submitted", 1, None
+        )
+
+    async def archive_site_diary(
+        self, session: object, *, actor_user_id: UUID, diary_id: UUID
+    ) -> SiteDiarySummary:
+        self.calls.append(("archive_site_diary", actor_user_id, diary_id))
+        return SiteDiarySummary(
+            diary_id,
+            PROJECT_ID,
+            date(2026, 8, 17),
+            uuid4(),
+            "submitted",
+            2,
+            datetime(2026, 8, 23, tzinfo=UTC),
         )
 
 
@@ -818,8 +832,23 @@ async def test_phase5_site_diary_route_minimises_visitor_data_and_delegates() ->
         )
     assert response.status_code == 201
     assert response.json()["client_record_id"] == str(client_record_id)
-    assert construction.calls[0].visitor_count == 2
-    assert not hasattr(construction.calls[0], "visitor_names")
+    call = construction.calls[0]
+    assert isinstance(call, SiteDiaryCreate)
+    assert call.visitor_count == 2
+    assert not hasattr(call, "visitor_names")
+    assert sessions.sessions[0].commits == 1
+
+
+async def test_phase5_site_diary_archive_route_is_a_thin_contract_call() -> None:
+    construction = FakeConstruction()
+    client, _, sessions = build_client(construction=construction)
+    diary_id = uuid4()
+    async with client:
+        response = await client.post(f"/api/v1/site-diary/{diary_id}/archive")
+    assert response.status_code == 200
+    assert response.json()["version"] == 2
+    assert response.json()["archived_at"] == "2026-08-23T00:00:00Z"
+    assert construction.calls == [("archive_site_diary", ACTOR_ID, diary_id)]
     assert sessions.sessions[0].commits == 1
 
 
