@@ -3,6 +3,17 @@
 Built 2026-08-18 to support handover item 4, "re-record the Phase 1-10
 sign-offs on the basis of the now-passing integration coverage."
 
+**Updated 2026-08-23.** Phase 3 now has service-level PostgreSQL coverage for
+the blueprint-wide same-transaction audit invariant. A real `LandService`
+parcel creation is proved to commit with exactly one valid hash-chain event,
+and an explicit rollback is proved to remove both the parcel and its audit
+event. This closes that invariant for Phase 3 only; it does not imply the same
+coverage for Phases 4-10.
+
+The post-change full suite passed with **337 tests and zero skips** against the
+real disposable PostgreSQL 16 database. This count includes newer authenticated
+read/UI coverage added after the original 2026-08-18 count below.
+
 This document records **what the test suite actually evidences, per phase**, so
 that a sign-off is made against a concrete list rather than against "the suite
 passes." It is deliberately not a sign-off itself: nothing here attests that a
@@ -51,7 +62,7 @@ the Phase 3-10 invariant tests were added.
 | --- | --- | ---: | ---: | ---: |
 | 1 — identity, org, audit, owner console | `identity`, `organization`, `audit`, `platform` | **36** | 166 | yes |
 | 2 — documents | `documents` | **2** | 24 | yes |
-| 3 — land, compliance | `land`, `compliance` | 0 → **1** | 4 | 1 |
+| 3 — land, compliance | `land`, `compliance` | 0 → **3** | 4 | 1 |
 | 4 — commercial | `commercial` | 0 → **1** | 5 | 1 |
 | 5 — construction, QA/QC | `construction` | 0 → **1** | 7 | 1 |
 | 6 — project controls | `project_controls` | 0 → **1** | 3 | 1 |
@@ -148,13 +159,14 @@ rest are still open, and they are the ones that matter for a sign-off.
   Still open, and the more important one: that aggregate reads use the distinct
   read-replica session and never the transactional one. The route test asserts
   the wiring; nothing asserts the behaviour against two real databases.
-- **All phases 3-10** — still entirely open, and the largest remaining gap: the
-  blueprint-wide invariants. Every mutation writes its audit event *in the same
-  transaction*, optimistic versioning holds under concurrency, and archival
-  replaces deletion. Phase 1 proves these for `organization.projects`. Nothing
-  proves them for the other domains, and the new invariant tests do not — they
-  exercise constraints directly, deliberately bypassing the service layer where
-  those guarantees live.
+- **Phases 4-10** — still entirely open for the largest remaining gap: the
+  blueprint-wide service invariants. Every mutation writes its audit event *in
+  the same transaction*, optimistic versioning holds under concurrency, and
+  archival replaces deletion. Phase 1 proves these for
+  `organization.projects`; Phase 3 now proves commit/rollback atomicity for
+  `land.land_parcels`. The other domain-invariant tests exercise constraints
+  directly and deliberately bypass the service layer where these guarantees
+  live. Phase 3 concurrency/versioning and archival coverage also remain open.
 
 ## What sign-off is defensible today
 
@@ -182,13 +194,12 @@ The eight database-invariant tests are done. The remaining gap has shifted from
 "no integration coverage" to "no *service-level* integration coverage", and it
 is the more valuable half.
 
-The highest-return next piece is a same-transaction audit test for one non-Phase-1
-domain — proving that a mutation and its audit event commit together, and that a
-failed mutation writes no event. Phase 1's `test_project_crud_audit.py` already
-does exactly this for `organization.projects` and is a direct template. If that
-invariant holds in one more domain by the same mechanism, the blueprint-wide
-claim becomes credible; if it does not, that is a defect worth finding before
-go-live rather than after.
+The highest-return piece identified here is now complete for Phase 3:
+`test_land_service_audit.py` proves commit and explicit rollback atomicity for
+one real non-Phase-1 service. The next evidence slice should apply the same
+pattern to Phase 4 and include its application-only vendor-active purchase-order
+gate, then continue phase by phase rather than extrapolating one domain's proof
+to the others.
 
 After that, in rough order of risk: Phase 10's read-replica separation (it is a
 data-leak boundary, not just a performance one), Phase 8's over-allocation

@@ -101,6 +101,11 @@ instance. None was introduced by Phase 11; all predate it.
   session-token auth, and same-transaction audit writes included. Those tests
   now pass, but confirm the per-phase sign-offs are re-recorded on that basis
   rather than left resting on the earlier, weaker evidence.
+  - [x] Phase 3 checkpoint, 2026-08-23: a real `LandService` parcel mutation
+    commits with exactly one valid hash-chain event, and rolling the service
+    call back removes both business row and event. This proves transaction
+    atomicity for that mutation only; Phase 3 optimistic concurrency, archival,
+    compliance mutations, and the same guarantees in Phases 4-10 remain open.
 - [x] RESOLVED 2026-08-18: `alembic upgrade head` failed on a clean database.
   The recorded cause (`0002_webauthn_challenges` re-creating a table
   `0001_baseline` already made via `db/schema.sql`) was real but was only the

@@ -1,6 +1,26 @@
 # Atlas Handover — Phases 1-10 built, Phase 11 boundary in place
 
-Updated: 2026-08-18 (Asia/Calcutta)
+Updated: 2026-08-23 (Asia/Calcutta)
+
+## 2026-08-23 continuation checkpoint
+
+- The branch advanced after the 2026-08-18 handover with authenticated read
+  endpoints, a web client, and a guarded synthetic development seed. Treat the
+  current Git history and worktree as authoritative rather than the older
+  commit table below.
+- The pre-change baseline passed Ruff lint/format, strict mypy (157 files), all
+  25 import contracts, and 335 tests against real PostgreSQL with zero skips.
+- Phase 3 now has two additional PostgreSQL service tests proving that land
+  parcel creation and its audit event commit together and roll back together.
+  Post-change verification passed: 337 tests against real PostgreSQL with zero
+  skips; Ruff lint and format; strict mypy over 157 files; 25 import contracts;
+  Bandit with no medium/high findings; pip-audit with no known vulnerabilities;
+  and sole Alembic head `0012_phase11_ai_safety`.
+- Phase 11 remains blocked at the owner-only Blueprint section 25 AI-hosting
+  decision. Do not select or implement an inference provider autonomously.
+- Before any staging operation, inspect ignored and untracked files as well as
+  the ordinary status. Never read, stage, log, or commit credential-bearing
+  local files; this repository is public.
 
 This document is the authoritative resume point for whoever picks the project up
 next, human or agentic. Continue from the existing repository state; do not
