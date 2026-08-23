@@ -1,6 +1,6 @@
 # Atlas Handover — Phases 1-10 built, Phase 11 boundary in place
 
-Updated: 2026-08-23 (Asia/Calcutta)
+Updated: 2026-08-24 (Asia/Calcutta)
 
 ## 2026-08-23 continuation checkpoint
 
@@ -179,8 +179,23 @@ Updated: 2026-08-23 (Asia/Calcutta)
   when services are bypassed. BIM and quantity transitions now acquire row
   locks before authorization and state evaluation; two-session tests prove one
   concurrent winner, while explicit rollback tests restore state/version and
-  audit together. Migration equivalence passes from empty. Phase 6 is not yet
-  complete: the BIM-object import/mapping boundary remains next.
+  audit together. Migration equivalence passes from empty.
+- Phase 6 now includes the structured BIM-object import/mapping boundary.
+  Validated imports accept 1-5,000 structured GUID/type mappings, validate
+  project locations through the published Organization contract and active
+  global material masters, then atomically insert objects, finalize the import, and
+  write one minimized audit event. Generic status transitions cannot bypass
+  object import. Concurrent imports have one winner; explicit rollback removes
+  objects, state/version change, and audit together. Quantity approval refuses
+  the verifying user. Thin HTTP routes and a responsive web mapper accept no raw
+  files, paths, URLs, or credentials. Verification passed 465 PostgreSQL-backed
+  tests with zero skips; Ruff lint/format; strict mypy over 157 files; all 25
+  import contracts; Bandit; pip-audit; sole Alembic head
+  `0016_phase6_bim_mapping`; 7 web tests, production build, npm audit, and
+  1440/390 px visual checks. Phase 6 is complete as a local production-shaped
+  foundation; parser sandboxing, returns/transfers/wastage/unit conversions,
+  asset-master linkage, and owner policy approvals remain explicit pre-live
+  items. Continue the integrity audit with Phase 7 only after this commit.
 - Phase 11 remains blocked at the owner-only Blueprint section 25 AI-hosting
   decision. Do not select or implement an inference provider autonomously.
 - Before any staging operation, inspect ignored and untracked files as well as

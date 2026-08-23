@@ -52,7 +52,12 @@ from atlas.modules.identity.schemas import (
 from atlas.modules.land.schemas import LandParcelCreate, LandParcelSummary
 from atlas.modules.organization.contracts import ConflictError, NotAuthorisedError, NotFoundError
 from atlas.modules.organization.schemas import ProjectCreate, ProjectSummary, ProjectUpdate
-from atlas.modules.project_controls.schemas import BimImportCreate, BimImportSummary
+from atlas.modules.project_controls.schemas import (
+    BimImportCreate,
+    BimImportSummary,
+    BimObjectCreate,
+    BimObjectSummary,
+)
 from atlas.modules.reporting.contracts import ReportingUnavailableError
 from atlas.modules.reporting.schemas import ProjectDashboard
 from atlas.platform.access_control import DeviceTrust
@@ -430,6 +435,7 @@ class FakeConstruction:
 class FakeProjectControls:
     def __init__(self) -> None:
         self.calls: list[BimImportCreate] = []
+        self.object_calls: list[tuple[UUID, tuple[BimObjectCreate, ...]]] = []
 
     async def register_bim_import(
         self, session: object, *, actor_user_id: UUID, data: BimImportCreate
@@ -438,6 +444,38 @@ class FakeProjectControls:
         return BimImportSummary(
             uuid4(), data.project_id, data.source_document_id, "received", None, None, 1
         )
+
+    async def import_bim_objects(
+        self,
+        session: object,
+        *,
+        actor_user_id: UUID,
+        import_id: UUID,
+        objects: tuple[BimObjectCreate, ...],
+    ) -> BimImportSummary:
+        self.object_calls.append((import_id, objects))
+        return BimImportSummary(
+            import_id, PROJECT_ID, DOCUMENT_ID, "imported", datetime.now(UTC), ACTOR_ID, 4
+        )
+
+    async def list_bim_objects(
+        self, session: object, *, actor_user_id: UUID, import_id: UUID
+    ) -> list[BimObjectSummary]:
+        return [
+            BimObjectSummary(
+                uuid4(),
+                import_id,
+                PROJECT_ID,
+                "SYNTHETIC-IFC-GUID",
+                "work_package",
+                None,
+                None,
+                None,
+                None,
+                "Synthetic package",
+                None,
+            )
+        ]
 
 
 class FakeChangeControl:
@@ -974,6 +1012,36 @@ async def test_phase6_bim_route_accepts_document_id_not_storage_reference() -> N
     assert controls.calls[0].source_document_id == source_document_id
     assert rejected.status_code == 422
     assert sessions.sessions[0].commits == 1
+
+
+async def test_phase6_bim_object_routes_use_structured_mappings() -> None:
+    controls = FakeProjectControls()
+    client, _, sessions = build_client(project_controls=controls)
+    import_id = uuid4()
+    async with client:
+        imported = await client.post(
+            f"/api/v1/bim-imports/{import_id}/objects",
+            json={
+                "objects": [
+                    {
+                        "ifc_guid": "SYNTHETIC-IFC-GUID",
+                        "object_type": "work_package",
+                        "work_package": "Synthetic package",
+                    }
+                ]
+            },
+        )
+        listed = await client.get(f"/api/v1/bim-imports/{import_id}/objects")
+        rejected = await client.post(
+            f"/api/v1/bim-imports/{import_id}/objects",
+            json={"objects": [{"ifc_guid": "SYN", "object_type": "material", "file": "x"}]},
+        )
+    assert imported.status_code == 200 and imported.json()["status"] == "imported"
+    assert controls.object_calls[0][0] == import_id
+    assert controls.object_calls[0][1][0].work_package == "Synthetic package"
+    assert listed.status_code == 200 and listed.json()[0]["ifc_guid"] == "SYNTHETIC-IFC-GUID"
+    assert rejected.status_code == 422
+    assert [session.commits for session in sessions.sessions] == [1, 1, 0]
 
 
 async def test_phase7_change_route_is_thin_and_rejects_unknown_fields() -> None:

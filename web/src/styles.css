@@ -545,6 +545,22 @@ tbody tr:hover {
   flex: 2;
 }
 
+.bim-object-row {
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 0.85rem;
+}
+
+.bim-object-row legend {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+  padding: 0 0.4rem;
+}
+
 .check-field {
   display: flex;
   align-items: center;
@@ -588,8 +604,13 @@ tbody tr:hover {
   .checklist-editor-row,
   .offline-queue-row,
   .labour-editor-row,
-  .material-editor-row {
+  .material-editor-row,
+  .bim-object-row {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .bim-object-row {
+    display: flex;
   }
 }

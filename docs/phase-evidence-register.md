@@ -10,8 +10,8 @@ and an explicit rollback is proved to remove both the parcel and its audit
 event. This closes that invariant for Phase 3 only; it does not imply the same
 coverage for Phases 4-10.
 
-The latest post-change full suite passed with **398 tests and zero skips**
-against the real disposable PostgreSQL 16 database. This count includes newer
+The latest post-change full suite passed on 2026-08-24 with **465 tests and zero
+skips** against the real disposable PostgreSQL 16 database. This count includes newer
 authenticated read/UI and phase-specific service coverage added after the
 original 2026-08-18 count below.
 
@@ -216,8 +216,19 @@ rest are still open, and they are the ones that matter for a sign-off.
   plus receipt project/material identity. Direct SQL adversarial coverage proves
   all seven invalid linkage shapes fail. BIM and quantity transitions row-lock
   before authorization/state evaluation; two-session tests prove one winner,
-  and rollback tests prove state/version/audit atomicity. Returns, transfers,
-  wastage, unit conversion, and BIM-object import remain open workflow work.
+  and rollback tests prove state/version/audit atomicity. Migration
+  `0016_phase6_bim_mapping` adds structured BIM work-package and material
+  mappings. PostgreSQL tests prove locations cannot cross project scope and
+  material references must resolve to an active global master; a validated
+  import and its object rows commit with one
+  minimized audit event or roll back together, direct status-transition bypass
+  is refused, and concurrent import attempts have one winner. Quantity approval
+  refuses the user who performed verification. The HTTP contract and browser
+  component tests cover structured requests, and responsive rendering passed at
+  1440 px and 390 px without console errors or horizontal overflow. Returns,
+  transfers, wastage, unit conversion, parser sandboxing, and production asset
+  master linkage remain owner/production work rather than silently selected
+  behavior.
 - **Phase 8** — active-unit double booking, installment-total over-allocation,
   and collection-to-installment over-allocation are now covered against
   PostgreSQL. Concurrent installment additions are serialized on the payment

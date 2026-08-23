@@ -243,12 +243,14 @@ forbidden_modules =
 allow_indirect_imports = true
 
 [importlinter:contract:project-controls-independent]
-name = Project controls use only published Identity and Documents contracts
+name = Project controls use only published Identity, Organization, and Documents contracts
 type = forbidden
 source_modules =
     atlas.modules.project_controls
 forbidden_modules =
-    atlas.modules.organization
+    atlas.modules.organization.models
+    atlas.modules.organization.repository
+    atlas.modules.organization.service
     atlas.modules.audit
     atlas.modules.documents.models
     atlas.modules.documents.service

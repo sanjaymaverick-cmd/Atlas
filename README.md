@@ -15,12 +15,14 @@ current state, environment setup, verified gates, known-broken items, and the
 ordered list of what to do next. `docs/production-readiness-todo.md` is the
 register of every decision the owner must sign off before go-live.
 
-As of 2026-08-18 the 38 PostgreSQL integration tests pass for the first time.
+As of 2026-08-24 the full suite passes **465 tests with zero skips** against the
+local PostgreSQL 16 test database. The original 38 PostgreSQL integration tests
+first passed on 2026-08-18.
 They had never executed: `db/schema.sql` could not be applied to an empty
 database, and because the suite skips when `ATLAS_TEST_DATABASE_URL` is unset,
 that failed silently from Phase 3 onward. Phases 1-10 were therefore signed off
-without their database-backed behaviour ever being exercised. Full suite is now
-316 passed. `alembic upgrade head` now provisions a database from empty too —
+without their database-backed behaviour ever being exercised. `alembic upgrade
+head` now provisions a database from empty too —
 verified against a real, from-empty PostgreSQL 16 container using the
 documented `asyncpg` URL; see `docs/phase-11-resume-handoff.md` defect C for
 what was actually broken (three separate issues, not one).
@@ -91,8 +93,8 @@ passed; CI always runs them against PostgreSQL 16.
 
 ### Next
 
-Continue the phase-by-phase service integrity audit after the Phase 5 archival
-slice. Real WebAuthn UAT, encrypted production object storage, malware-scanner
+Continue the phase-by-phase service integrity audit with Phase 7. Real
+WebAuthn UAT, encrypted production object storage, malware-scanner
 selection, staging, and DR provisioning remain pre-launch gates tracked in
 `docs/production-readiness-todo.md`.
 
@@ -209,7 +211,12 @@ document revisions. Material issuance is serialized against its receipt and
 rejects cumulative quantities above accepted stock. Formal discrepancy/change
 handling remains in Phase 7. Composite PostgreSQL constraints prevent BIM,
 CostCode, quantity, certificate, receipt, material, and issuance references
-from crossing project scope even when writes bypass the service layer.
+from crossing project scope even when writes bypass the service layer. A
+validated import can be completed only by atomically submitting structured BIM
+object mappings; GUID/type, project location, work package, and active global
+material-master references are validated. Raw models, paths, URLs,
+and credentials are not accepted by the mapping API. Quantity verification and
+approval must be attributed to different users.
 
 Phase 7 operations cover change requests, RFIs, NCRs, and quantity discrepancy
 cases under `/api/v1`. The workflows enforce ordered transitions, controlled

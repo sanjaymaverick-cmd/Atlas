@@ -314,7 +314,7 @@ export const CATALOG: WorkflowGroup[] = [
         path: (_s, v) => `/api/v1/bim-imports/${v["__id"] ?? ""}/transition`,
         fields: [
           targetId("Import ID"),
-          status(["received", "validating", "validated", "rejected", "imported"]),
+          status(["received", "validating", "validated", "rejected"]),
         ],
         pathFields: ["__id"],
         submitLabel: "Apply transition",

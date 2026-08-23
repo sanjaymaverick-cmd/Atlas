@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from atlas.modules.project_controls.schemas import (
     BimImportCreate,
+    BimObjectCreate,
     CostCodeCreate,
     IssuanceCreate,
     MaterialCreate,
@@ -51,6 +52,40 @@ class BimImportResponse(DtoResponse):
     validated_at: datetime | None
     validated_by: UUID | None
     version: int
+
+
+class BimObjectRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    ifc_guid: str = Field(min_length=1, max_length=100)
+    object_type: str = Field(min_length=1, max_length=50)
+    building_id: UUID | None = None
+    floor_id: UUID | None = None
+    unit_id: UUID | None = None
+    room_reference: str | None = Field(default=None, max_length=200)
+    work_package: str | None = Field(default=None, max_length=200)
+    material_id: UUID | None = None
+
+    def to_dto(self) -> BimObjectCreate:
+        return BimObjectCreate(**self.model_dump())
+
+
+class BimObjectImportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    objects: list[BimObjectRequest] = Field(min_length=1, max_length=5000)
+
+
+class BimObjectResponse(DtoResponse):
+    id: UUID
+    bim_import_id: UUID
+    project_id: UUID
+    ifc_guid: str
+    object_type: str
+    building_id: UUID | None
+    floor_id: UUID | None
+    unit_id: UUID | None
+    room_reference: str | None
+    work_package: str | None
+    material_id: UUID | None
 
 
 class CostCodeRequest(BaseModel):

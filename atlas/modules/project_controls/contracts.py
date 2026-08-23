@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from atlas.modules.project_controls.schemas import (
     BimImportCreate,
     BimImportSummary,
+    BimObjectCreate,
+    BimObjectSummary,
     CostCodeCreate,
     CostCodeSummary,
     IssuanceCreate,
@@ -43,6 +45,17 @@ class ProjectControlsContract(Protocol):
     async def transition_bim_import(
         self, session: AsyncSession, *, actor_user_id: UUID, import_id: UUID, target_status: str
     ) -> BimImportSummary: ...
+    async def import_bim_objects(
+        self,
+        session: AsyncSession,
+        *,
+        actor_user_id: UUID,
+        import_id: UUID,
+        objects: tuple[BimObjectCreate, ...],
+    ) -> BimImportSummary: ...
+    async def list_bim_objects(
+        self, session: AsyncSession, *, actor_user_id: UUID, import_id: UUID
+    ) -> list[BimObjectSummary]: ...
     async def create_cost_code(
         self, session: AsyncSession, *, actor_user_id: UUID, data: CostCodeCreate
     ) -> CostCodeSummary: ...

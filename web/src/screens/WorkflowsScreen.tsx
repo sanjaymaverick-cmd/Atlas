@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { ActionForm } from "../components/ActionForm";
+import { BimObjectMapper } from "../components/BimObjectMapper";
 import { OfflineSiteDiary } from "../components/OfflineSiteDiary";
 import { RegisterTable } from "../components/RegisterTable";
 import { ScopeBar } from "../components/ScopeBar";
@@ -73,6 +74,8 @@ export function WorkflowsScreen() {
               <TemplateBuilder projectId={projectId} />
             </>
           )}
+
+          {group.phase === "Phase 6" && <BimObjectMapper projectId={projectId} />}
 
           {registers.map((register) => (
             <RegisterTable

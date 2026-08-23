@@ -125,6 +125,19 @@ async def _seed(session: AsyncSession) -> tuple[UUID, UUID, UUID, UUID]:
     return actor_id, project_id, import_id, quantity_id
 
 
+async def _seed_approver(session: AsyncSession) -> UUID:
+    approver_id = uuid4()
+    await session.execute(
+        text(
+            "INSERT INTO identity.users (id, full_name, email, status, version) "
+            "VALUES (:id, 'Synthetic Quantity Approver', :email, 'active', 1)"
+        ),
+        {"id": approver_id, "email": f"phase6-approver-{approver_id}@example.invalid"},
+    )
+    await session.commit()
+    return approver_id
+
+
 async def _one_winner(
     session_factory: async_sessionmaker[AsyncSession],
     identity: LockProbeIdentity,
@@ -195,14 +208,16 @@ async def test_concurrent_quantity_approval_serializes_one_winner(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with session_factory() as seed_session:
-        actor_id, _, _, quantity_id = await _seed(seed_session)
+        verifier_id, _, _, quantity_id = await _seed(seed_session)
+        approver_id = await _seed_approver(seed_session)
         await seed_session.execute(
             text(
                 "UPDATE quantities.quantity_items "
-                "SET status = 'within_tolerance', verified_quantity = 101 "
+                "SET status = 'within_tolerance', verified_quantity = 101, "
+                "updated_by = :verifier "
                 "WHERE id = :id"
             ),
-            {"id": quantity_id},
+            {"id": quantity_id, "verifier": verifier_id},
         )
         await seed_session.commit()
     identity = LockProbeIdentity()
@@ -210,7 +225,7 @@ async def test_concurrent_quantity_approval_serializes_one_winner(
     async def approve(service: ProjectControlsService, session: AsyncSession) -> StatusResult:
         return await service.approve_quantity(
             session,
-            actor_user_id=actor_id,
+            actor_user_id=approver_id,
             quantity_id=quantity_id,
             final_quantity=Decimal("101"),
         )
@@ -254,7 +269,8 @@ async def test_quantity_verify_and_approve_roll_back_with_their_audit(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with session_factory() as session:
-        actor_id, _, _, quantity_id = await _seed(session)
+        verifier_id, _, _, quantity_id = await _seed(session)
+        approver_id = await _seed_approver(session)
         audit_count = int(
             await session.scalar(text("SELECT count(*) FROM audit.audit_events")) or 0
         )
@@ -263,7 +279,7 @@ async def test_quantity_verify_and_approve_roll_back_with_their_audit(
         service = ProjectControlsService(identity)
         await service.verify_quantity(
             session,
-            actor_user_id=actor_id,
+            actor_user_id=verifier_id,
             quantity_id=quantity_id,
             verified_quantity=Decimal("101"),
         )
@@ -286,14 +302,15 @@ async def test_quantity_verify_and_approve_roll_back_with_their_audit(
         await session.execute(
             text(
                 "UPDATE quantities.quantity_items "
-                "SET verified_quantity = 101, status = 'within_tolerance' WHERE id = :id"
+                "SET verified_quantity = 101, status = 'within_tolerance', "
+                "updated_by = :verifier WHERE id = :id"
             ),
-            {"id": quantity_id},
+            {"id": quantity_id, "verifier": verifier_id},
         )
         await session.commit()
         await service.approve_quantity(
             session,
-            actor_user_id=actor_id,
+            actor_user_id=approver_id,
             quantity_id=quantity_id,
             final_quantity=Decimal("101"),
         )
@@ -308,6 +325,48 @@ async def test_quantity_verify_and_approve_roll_back_with_their_audit(
             )
         ).one()
         assert tuple(approved_state) == (None, "within_tolerance", 1)
+        assert (
+            int(await session.scalar(text("SELECT count(*) FROM audit.audit_events")) or 0)
+            == audit_count
+        )
+
+
+async def test_quantity_verifier_cannot_approve_own_measurement(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        verifier_id, _, _, quantity_id = await _seed(session)
+        identity = LockProbeIdentity()
+        identity.release_first.set()
+        service = ProjectControlsService(identity)
+        await service.verify_quantity(
+            session,
+            actor_user_id=verifier_id,
+            quantity_id=quantity_id,
+            verified_quantity=Decimal("101"),
+        )
+        await session.commit()
+        audit_count = int(
+            await session.scalar(text("SELECT count(*) FROM audit.audit_events")) or 0
+        )
+        with pytest.raises(ProjectControlsConflictError, match="different attributed verifier"):
+            await service.approve_quantity(
+                session,
+                actor_user_id=verifier_id,
+                quantity_id=quantity_id,
+                final_quantity=Decimal("101"),
+            )
+        await session.rollback()
+        state = (
+            await session.execute(
+                text(
+                    "SELECT final_approved_quantity, status, version "
+                    "FROM quantities.quantity_items WHERE id = :id"
+                ),
+                {"id": quantity_id},
+            )
+        ).one()
+        assert tuple(state) == (None, "within_tolerance", 2)
         assert (
             int(await session.scalar(text("SELECT count(*) FROM audit.audit_events")) or 0)
             == audit_count

@@ -17,6 +17,7 @@ from atlas.modules.documents.contracts import (
     DocumentsContract,
 )
 from atlas.modules.identity.contracts import IdentityContract
+from atlas.modules.organization.contracts import OrganizationContract
 from atlas.modules.project_controls.contracts import (
     ProjectControlsConflictError,
     ProjectControlsNotAuthorisedError,
@@ -34,6 +35,8 @@ from atlas.modules.project_controls.models import (
 from atlas.modules.project_controls.schemas import (
     BimImportCreate,
     BimImportSummary,
+    BimObjectCreate,
+    BimObjectSummary,
     CostCodeCreate,
     CostCodeSummary,
     IssuanceCreate,
@@ -50,8 +53,21 @@ from atlas.platform.audit.writer import record_event
 BIM_TRANSITIONS = {
     "received": frozenset({"validating"}),
     "validating": frozenset({"validated", "rejected"}),
-    "validated": frozenset({"imported"}),
+    "validated": frozenset(),
 }
+BIM_OBJECT_TYPES = frozenset(
+    {
+        "building",
+        "floor",
+        "unit",
+        "room",
+        "work_package",
+        "material",
+        "boq_line",
+        "asset",
+        "quantity",
+    }
+)
 
 
 def bim_summary(r: BimImport) -> BimImportSummary:
@@ -65,6 +81,24 @@ def bim_summary(r: BimImport) -> BimImportSummary:
         r.validated_at,
         r.validated_by,
         r.version,
+    )
+
+
+def bim_object_summary(r: BimObject) -> BimObjectSummary:
+    if r.ifc_guid is None or r.object_type is None:
+        raise ProjectControlsConflictError("legacy BIM object has incomplete classified mapping")
+    return BimObjectSummary(
+        r.id,
+        r.bim_import_id,
+        r.project_id,
+        r.ifc_guid,
+        r.object_type,
+        r.building_id,
+        r.floor_id,
+        r.unit_id,
+        r.room_reference,
+        r.work_package,
+        r.material_id,
     )
 
 
@@ -122,10 +156,14 @@ PERM_READ = "project_controls.read"
 
 class ProjectControlsService:
     def __init__(
-        self, identity: IdentityContract, documents: DocumentsContract | None = None
+        self,
+        identity: IdentityContract,
+        documents: DocumentsContract | None = None,
+        organization: OrganizationContract | None = None,
     ) -> None:
         self._identity = identity
         self._documents = documents
+        self._organization = organization
 
     async def _require(
         self, s: AsyncSession, actor: UUID, permission: str, project: UUID | None
@@ -282,6 +320,96 @@ class ProjectControlsService:
         )
         return bim_summary(row)
 
+    async def import_bim_objects(
+        self,
+        s: AsyncSession,
+        *,
+        actor_user_id: UUID,
+        import_id: UUID,
+        objects: tuple[BimObjectCreate, ...],
+    ) -> BimImportSummary:
+        row = await s.scalar(select(BimImport).where(BimImport.id == import_id).with_for_update())
+        if row is None:
+            raise ProjectControlsNotFoundError(f"BIM import {import_id} does not exist")
+        await self._require(s, actor_user_id, "design.bim.import", row.project_id)
+        if row.archived_at is not None or row.import_status != "validated":
+            raise ProjectControlsConflictError("BIM objects require an active validated import")
+        if not 1 <= len(objects) <= 5000:
+            raise ProjectControlsConflictError("BIM import requires between 1 and 5000 objects")
+        normalized_guids = [value.ifc_guid.strip() for value in objects]
+        if any(not value for value in normalized_guids) or len(set(normalized_guids)) != len(
+            normalized_guids
+        ):
+            raise ProjectControlsConflictError("BIM object IFC GUIDs must be non-empty and unique")
+
+        now = datetime.now(UTC)
+        for data, ifc_guid in zip(objects, normalized_guids, strict=True):
+            object_type = data.object_type.strip()
+            if object_type not in BIM_OBJECT_TYPES:
+                raise ProjectControlsConflictError("BIM object type is not supported")
+            if any(value is not None for value in (data.building_id, data.floor_id, data.unit_id)):
+                if (
+                    self._organization is None
+                    or not await self._organization.location_belongs_to_project(
+                        s,
+                        project_id=row.project_id,
+                        building_id=data.building_id,
+                        floor_id=data.floor_id,
+                        unit_id=data.unit_id,
+                    )
+                ):
+                    raise ProjectControlsConflictError(
+                        "BIM object location must form a hierarchy in the import project"
+                    )
+            if data.material_id is not None:
+                material = await s.get(Material, data.material_id)
+                if material is None or material.archived_at is not None:
+                    raise ProjectControlsConflictError("BIM object material must be active")
+            if object_type == "material" and data.material_id is None:
+                raise ProjectControlsConflictError(
+                    "material BIM objects require a material mapping"
+                )
+            s.add(
+                BimObject(
+                    id=uuid4(),
+                    bim_import_id=row.id,
+                    ifc_guid=ifc_guid,
+                    object_type=object_type,
+                    project_id=row.project_id,
+                    building_id=data.building_id,
+                    floor_id=data.floor_id,
+                    unit_id=data.unit_id,
+                    room_reference=data.room_reference.strip() if data.room_reference else None,
+                    work_package=data.work_package.strip() if data.work_package else None,
+                    material_id=data.material_id,
+                    created_at=now,
+                    created_by=actor_user_id,
+                    archived_at=None,
+                )
+            )
+        before = {"status": row.import_status, "version": row.version}
+        row.import_status = "imported"
+        row.updated_at = now
+        row.updated_by = actor_user_id
+        row.version += 1
+        try:
+            await s.flush()
+        except IntegrityError as exc:
+            raise ProjectControlsConflictError(
+                "BIM object mappings conflict with existing data"
+            ) from exc
+        await self._audit(
+            s,
+            actor_user_id,
+            "design",
+            "bim_imports",
+            row.id,
+            "import_objects",
+            before,
+            {"status": row.import_status, "object_count": len(objects), "version": row.version},
+        )
+        return bim_summary(row)
+
     async def create_cost_code(
         self, s: AsyncSession, *, actor_user_id: UUID, data: CostCodeCreate
     ) -> CostCodeSummary:
@@ -433,6 +561,10 @@ class ProjectControlsService:
         await self._require(s, actor_user_id, "quantities.item.approve", row.project_id)
         if row.status not in {"within_tolerance", "under_review"} or final_quantity < 0:
             raise ProjectControlsConflictError("quantity cannot be approved in its current state")
+        if row.updated_by is None or row.updated_by == actor_user_id:
+            raise ProjectControlsConflictError(
+                "quantity approval requires a different attributed verifier"
+            )
         before = {"status": row.status, "version": row.version}
         row.final_approved_quantity = final_quantity
         row.status = "approved"
@@ -637,6 +769,21 @@ class ProjectControlsService:
             .order_by(BimImport.created_at)
         )
         return [bim_summary(row) for row in result.scalars()]
+
+    async def list_bim_objects(
+        self, s: AsyncSession, *, actor_user_id: UUID, import_id: UUID
+    ) -> list[BimObjectSummary]:
+        import_row = await s.get(BimImport, import_id)
+        if import_row is None or import_row.archived_at is not None:
+            raise ProjectControlsNotFoundError(f"BIM import {import_id} does not exist")
+        await self._require(s, actor_user_id, PERM_READ, import_row.project_id)
+        result = await s.execute(
+            select(BimObject)
+            .where(BimObject.bim_import_id == import_id)
+            .where(BimObject.archived_at.is_(None))
+            .order_by(BimObject.ifc_guid)
+        )
+        return [bim_object_summary(row) for row in result.scalars()]
 
     async def list_cost_codes(
         self, s: AsyncSession, *, actor_user_id: UUID, project_id: UUID

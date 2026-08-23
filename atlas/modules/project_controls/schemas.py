@@ -26,6 +26,33 @@ class BimImportSummary:
 
 
 @dataclass(frozen=True, slots=True)
+class BimObjectCreate:
+    ifc_guid: str
+    object_type: str
+    building_id: UUID | None = None
+    floor_id: UUID | None = None
+    unit_id: UUID | None = None
+    room_reference: str | None = None
+    work_package: str | None = None
+    material_id: UUID | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class BimObjectSummary:
+    id: UUID
+    bim_import_id: UUID
+    project_id: UUID
+    ifc_guid: str
+    object_type: str
+    building_id: UUID | None
+    floor_id: UUID | None
+    unit_id: UUID | None
+    room_reference: str | None
+    work_package: str | None
+    material_id: UUID | None
+
+
+@dataclass(frozen=True, slots=True)
 class CostCodeCreate:
     project_id: UUID
     code: str

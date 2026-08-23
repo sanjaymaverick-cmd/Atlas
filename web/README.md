@@ -31,6 +31,11 @@ npm run dev
 `npm run typecheck` runs TypeScript alone; `npm run build` typechecks and then
 builds. `npm audit --audit-level=moderate` is a required CI security gate.
 
+The Phase 6 workflow includes a structured BIM object mapper for already
+validated imports. It submits object GUID/type and controlled project/material
+references only; it deliberately does not accept raw IFC files, filesystem
+paths, URLs, or credentials.
+
 ## Signing in for testing
 
 Atlas has **no password login and no demo credentials** — authentication is a

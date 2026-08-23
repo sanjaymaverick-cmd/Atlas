@@ -12,6 +12,8 @@ from atlas.api.dependencies import ApiServices, get_current_session, get_service
 from atlas.api.project_controls_schemas import (
     BimImportRequest,
     BimImportResponse,
+    BimObjectImportRequest,
+    BimObjectResponse,
     CostCodeRequest,
     CostCodeResponse,
     IssuanceRequest,
@@ -58,6 +60,24 @@ async def transition_bim(
             actor_user_id=actor.user_id,
             import_id=import_id,
             target_status=body.target_status,
+        )
+    )
+
+
+@router.post("/bim-imports/{import_id}/objects", response_model=BimImportResponse)
+async def import_bim_objects(
+    import_id: UUID,
+    body: BimObjectImportRequest,
+    actor: Actor,
+    session: Db,
+    services: Services,
+) -> BimImportResponse:
+    return BimImportResponse.from_dto(
+        await services.project_controls.import_bim_objects(
+            session,
+            actor_user_id=actor.user_id,
+            import_id=import_id,
+            objects=tuple(value.to_dto() for value in body.objects),
         )
     )
 
@@ -176,6 +196,16 @@ async def list_bim_imports(
         session, actor_user_id=actor.user_id, project_id=project_id
     )
     return [BimImportResponse.from_dto(row) for row in rows]
+
+
+@router.get("/bim-imports/{import_id}/objects", response_model=list[BimObjectResponse])
+async def list_bim_objects(
+    import_id: UUID, actor: Actor, session: Db, services: Services
+) -> list[BimObjectResponse]:
+    rows = await services.project_controls.list_bim_objects(
+        session, actor_user_id=actor.user_id, import_id=import_id
+    )
+    return [BimObjectResponse.from_dto(row) for row in rows]
 
 
 @router.get("/projects/{project_id}/cost-codes", response_model=list[CostCodeResponse])

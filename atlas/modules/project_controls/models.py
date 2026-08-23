@@ -39,7 +39,18 @@ class BimObject(Base):
     __table_args__ = {"schema": "design"}
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
     bim_import_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
-    project_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    ifc_guid: Mapped[str | None]
+    object_type: Mapped[str | None]
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    building_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    floor_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    unit_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    room_reference: Mapped[str | None]
+    work_package: Mapped[str | None]
+    material_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class CostCode(AuditColumns, Base):

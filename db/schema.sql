@@ -516,6 +516,8 @@ CREATE TABLE design.bim_objects (
   bim_import_id   UUID NOT NULL,
   ifc_guid        TEXT,
   object_type     TEXT,       -- work package, material, asset, etc.
+  work_package    TEXT,
+  material_id     UUID,
   project_id      UUID NOT NULL REFERENCES organization.projects(id),
   building_id     UUID REFERENCES organization.buildings(id),
   floor_id        UUID REFERENCES organization.floors(id),
@@ -1109,7 +1111,12 @@ CREATE TABLE inventory.material_issuances (
     REFERENCES documents.documents(id, project_id)
 );
 
+ALTER TABLE design.bim_objects
+  ADD CONSTRAINT bim_objects_material_id_fkey
+  FOREIGN KEY (material_id) REFERENCES inventory.materials(id);
+
 CREATE INDEX idx_bim_imports_project ON design.bim_imports(project_id);
+CREATE INDEX idx_bim_objects_import ON design.bim_objects(bim_import_id);
 CREATE INDEX idx_quantity_items_project_status ON quantities.quantity_items(project_id, status);
 CREATE INDEX idx_material_receipts_project_date ON inventory.material_receipts(project_id, received_date);
 CREATE INDEX idx_material_issuances_receipt ON inventory.material_issuances(material_receipt_id);

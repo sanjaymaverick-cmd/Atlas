@@ -495,9 +495,18 @@ instance. None was introduced by Phase 11; all predate it.
 - [ ] Select and security-review the IFC/BIM validation and extraction tooling,
   sandboxing limits, file-size/time limits, malware scanning, parser patching,
   and failure quarantine behavior before accepting real model files.
+  The provisional API added 2026-08-24 accepts only 1-5,000 structured object
+  mappings for an already validated import; it does not accept or parse model
+  bytes, paths, URLs, or credentials. Before production, approve a least-
+  privilege extraction worker identity, signed extraction provenance, chunking
+  and retry rules for larger models, correction/supersession semantics, and the
+  boundary between automated mapping and mandatory human review.
 - [ ] Classify BIM models, object GUIDs, room/unit mappings, quantities, rates,
   and derived geometry as confidential project intellectual property. Approve
   access, watermark/export, retention, legal hold, and vendor-processing rules.
+  Structured GUIDs and room references are returned only through the scoped
+  BIM read permission, but their classification and export policy remain an
+  owner decision.
 - [ ] Migrate and classify legacy free-form BIM source references into the new
   restricted Documents foreign key. New writes use only Documents evidence;
   never accept local paths, credentials, signed URLs, or public object URLs.
@@ -507,9 +516,20 @@ instance. None was introduced by Phase 11; all predate it.
 - [ ] Approve quantity units, conversions, rounding precision, tolerance policy,
   verifier independence, discrepancy escalation, and final approval authority.
   Phase 7 owns formal discrepancy/change workflows.
+  Provisional enforcement added 2026-08-24: the approving user must differ from
+  the verifier attribution stored in `updated_by`. Confirm the production role
+  matrix, legacy attribution remediation, step-up requirements, and whether
+  dedicated immutable verifier/approver columns are required instead of this
+  existing attribution field.
 - [ ] Define material master ownership and duplicate-merging rules. The current
   `(name, unit_of_measure)` uniqueness is provisional and not a substitute for
   an approved SKU/catalogue identity strategy.
+  Structured BIM material mappings currently require an active global material
+  master; materials have no project ownership in the canonical schema. Confirm
+  that scope model before production. The `asset` BIM object type has no asset-
+  master foreign key because no asset domain exists yet; approve asset identity/
+  lifecycle ownership before treating that mapping as production asset
+  integration.
 - [ ] Classify supplier batch/lot references, test certificates, recipient/site
   allocation notes, and issuance evidence; set minimization, access, retention,
   export, and legal-hold rules. Evidence must be restricted Documents records.
@@ -541,6 +561,9 @@ instance. None was introduced by Phase 11; all predate it.
   and rollback, and retain a signed exception report. The migration backfills
   only a null BIM-object project from its referenced import; it does not guess
   how to repair contradictory non-null ownership.
+  Migration `0016_phase6_bim_mapping` adds nullable work-package/material
+  mappings and a material foreign key. Rehearse the migration on a production-
+  shaped copy and approve legacy object classification before backfilling.
 
 ## Phase 7 — Change management, RFIs, NCRs, and discrepancies
 
