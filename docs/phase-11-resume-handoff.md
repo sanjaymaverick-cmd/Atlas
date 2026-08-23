@@ -59,6 +59,13 @@ Updated: 2026-08-23 (Asia/Calcutta)
   event, and explicit rollback. Post-change verification passed 353 tests
   against real PostgreSQL with zero skips, Ruff, strict mypy over 157 files,
   all 25 import contracts, Bandit, pip-audit, and the sole Alembic head.
+- Phase 6 material issuance now has real concurrency evidence. PostgreSQL tests
+  prove cumulative overdraw refusal, prove a second transaction blocks while
+  the first holds the receipt row, prove only one competing 60-of-100 issuance
+  succeeds, and verify a valid issuance audit chain. Post-change verification
+  passed 356 tests against real PostgreSQL with zero skips, Ruff, strict mypy
+  over 157 files, all 25 import contracts, Bandit, pip-audit, and the sole
+  Alembic head.
 - Phase 11 remains blocked at the owner-only Blueprint section 25 AI-hosting
   decision. Do not select or implement an inference provider autonomously.
 - Before any staging operation, inspect ignored and untracked files as well as

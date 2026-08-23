@@ -417,6 +417,11 @@ instance. None was introduced by Phase 11; all predate it.
   source receipt and reject cumulative quantities above the accepted receipt;
   decide whether rejected/partial receipts, returns, transfers, wastage, and
   unit conversion require separate immutable ledger event types.
+  Evidence update 2026-08-23: PostgreSQL tests prove the receipt row remains
+  locked across authorization and cumulative summing, a concurrent issuer
+  blocks, and only one of two competing 60-of-100 issuances commits. The
+  provisional receipt-level serialization remains subject to owner approval
+  alongside reservation, return, transfer, and unit-conversion policy.
 - [ ] Review the database-enforced same-project invariant between material
   receipts and purchase orders, including how legacy rows should be remediated
   before migration. The migration fails closed rather than attaching a receipt

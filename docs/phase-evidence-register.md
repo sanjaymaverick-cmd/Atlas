@@ -146,10 +146,12 @@ rest are still open, and they are the ones that matter for a sign-off.
   archived/unapproved, or revision-less evidence; the valid controlled-evidence
   path and same-transaction audit commit are covered too. Broader
   concurrency/versioning and archival evidence remains open for the phase.
-- **Phase 6** — ~~the composite `(id, project_id)` foreign keys~~ now covered.
-  Still open: "material issuance is serialized against its receipt and rejects
-  cumulative quantities above accepted stock", which is a service-level check
-  over accumulated rows, not a constraint.
+- **Phase 6** — the composite `(id, project_id)` foreign keys and cumulative
+  material-issuance guard are now covered. A two-session PostgreSQL test proves
+  the second issuer blocks on the receipt lock and only one competing 60-of-100
+  issuance succeeds; sequential overdraw and valid audit commit are covered.
+  Returns, transfers, wastage, unit conversion, and broader lifecycle evidence
+  remain open policy/workflow work.
 - **Phase 8** — active-unit double booking, installment-total over-allocation,
   and collection-to-installment over-allocation are now covered against
   PostgreSQL. Concurrent installment additions are serialized on the payment
@@ -189,7 +191,7 @@ A fair reading of the evidence:
 - **Phase 2** — re-record with the narrowness noted; two integration tests is
   thin for the size of the phase.
 - **Phases 3-10** — each now has one integration test proving its strongest
-  database-enforced rule. Phases 3, 4, 8, 9, and 10 additionally have focused
+  database-enforced rule. Phases 3, 4, 6, 8, 9, and 10 additionally have focused
   service-level or database-boundary slices. This is a real improvement but
   is still materially weaker than Phase 1's coverage. Defensible to re-record
   **scoped to the named rules**: "the unit double-booking guarantee is
@@ -214,9 +216,9 @@ explicit rollback atomicity for land-parcel creation;
 purchase-order gate plus issue/audit commit and explicit rollback. Continue
 phase by phase rather than extrapolating either domain's proof to the others.
 
-Next, in rough order of risk: Phase 6's cumulative material issuance check,
-Phase 8's executed customer-contract linkage, and the remaining phase-by-phase
-service transaction proofs.
+Next, in rough order of risk: Phase 8's executed customer-contract linkage and
+the remaining phase-by-phase service transaction, concurrency/version, and
+archival proofs.
 Phase 10 production replication and refresh scheduling stay in the
 owner-reviewed deployment register rather than being simulated in code.
 
