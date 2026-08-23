@@ -181,6 +181,14 @@ rest are still open, and they are the ones that matter for a sign-off.
   prove one version increment and one minimized valid audit event on commit,
   no row or audit change on rollback, no duplicate event on retry, and refusal
   for every nonterminal lifecycle state covered by the service policy.
+  Creation-path evidence now covers activities, site diaries, EHS incidents,
+  inspection templates, scheduled inspections, and snags as well: each commits
+  exactly one domain row and one valid privacy-minimized audit event, while an
+  explicit rollback removes both. Progress creation retains its separate
+  chronological, monotonic, evidence, rollback, and concurrency suite.
+  This strengthens the service evidence but does not complete the Blueprint
+  phase: meeting registers/action items, the mobile-first offline diary client,
+  and the no-code QA/QC template-builder experience remain open.
 - **Phase 6** — the composite `(id, project_id)` foreign keys and cumulative
   material-issuance guard are now covered. A two-session PostgreSQL test proves
   the second issuer blocks on the receipt lock and only one competing 60-of-100

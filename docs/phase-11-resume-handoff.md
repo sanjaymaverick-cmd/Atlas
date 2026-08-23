@@ -124,6 +124,16 @@ Updated: 2026-08-23 (Asia/Calcutta)
   against real PostgreSQL with zero skips, empty-database migration equivalence,
   Ruff, strict mypy over 157 files, all 25 import contracts, Bandit, pip-audit,
   and sole Alembic head `0013_phase5_scope_integrity`.
+- Phase 5 creation atomicity is now directly evidenced for activities, site
+  diaries, EHS incidents, inspection templates, scheduled inspections, and
+  snags. Parameterized PostgreSQL tests prove one domain row plus one valid,
+  privacy-minimized audit event on commit and removal of both on explicit
+  rollback. Post-change verification passed 430 tests against real PostgreSQL
+  with zero skips, Ruff, strict mypy over 157 files, all 25 import contracts,
+  Bandit, and pip-audit. Do not mistake this for Phase 5 completion: the
+  Blueprint's mobile-first offline diary and no-code QA/QC template builder are
+  not yet implemented as dedicated experiences, and construction meeting
+  registers/action items still have no service/API layer.
 - Phase 11 remains blocked at the owner-only Blueprint section 25 AI-hosting
   decision. Do not select or implement an inference provider autonomously.
 - Before any staging operation, inspect ignored and untracked files as well as
