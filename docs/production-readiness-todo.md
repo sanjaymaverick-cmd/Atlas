@@ -393,6 +393,12 @@ instance. None was introduced by Phase 11; all predate it.
 - [ ] Review provisional progress invariants: percentage is 0–100, one update
   per activity/date, schedule dates cannot run backwards, and progress evidence
   remains immutable after submission.
+  Provisional integrity control implemented 2026-08-23: writers serialize on
+  the schedule-activity row, and every accepted update must have a strictly
+  later date and a percentage no lower than the latest update. Notes stay out
+  of audit payloads. Confirm whether same-date retries should remain conflicts
+  or become idempotent, whether corrections require a separate supersession
+  workflow, and which roles may submit or correct progress before go-live.
 - [ ] Choose the authoritative project/site business timezone and date rollover
   policy. The local service currently derives automatic transition dates from
   UTC; do not assume UTC calendar dates match the legally relevant site date.

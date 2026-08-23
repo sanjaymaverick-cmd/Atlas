@@ -79,6 +79,12 @@ Updated: 2026-08-23 (Asia/Calcutta)
   text from audit payloads. Post-change verification passed 365 tests against
   real PostgreSQL with zero skips, Ruff, strict mypy over 157 files, all 25
   import contracts, Bandit, pip-audit, and the sole Alembic head.
+- Phase 5 schedule progress now serializes writers on the activity row and
+  accepts only strictly later, non-decreasing updates. PostgreSQL tests prove
+  chronological and percentage refusal, two-writer serialization, minimized
+  audit commit, and explicit rollback. Post-change verification passed 368
+  tests against real PostgreSQL with zero skips, Ruff, strict mypy over 157
+  files, all 25 import contracts, Bandit, pip-audit, and the sole Alembic head.
 - Phase 11 remains blocked at the owner-only Blueprint section 25 AI-hosting
   decision. Do not select or implement an inference provider autonomously.
 - Before any staging operation, inspect ignored and untracked files as well as

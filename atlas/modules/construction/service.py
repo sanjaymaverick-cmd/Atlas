@@ -274,7 +274,9 @@ class ConstructionService:
     async def add_progress(
         self, session: AsyncSession, *, actor_user_id: UUID, activity_id: UUID, data: ProgressCreate
     ) -> ProgressSummary:
-        activity = await session.get(ScheduleActivity, activity_id)
+        activity = await session.scalar(
+            select(ScheduleActivity).where(ScheduleActivity.id == activity_id).with_for_update()
+        )
         if activity is None:
             raise ConstructionNotFoundError(f"activity {activity_id} does not exist")
         await self._require(
@@ -292,6 +294,8 @@ class ConstructionService:
             .order_by(ProgressUpdate.progress_date.desc())
             .limit(1)
         )
+        if latest is not None and data.progress_date <= latest.progress_date:
+            raise ConstructionConflictError("progress date must follow the latest update")
         if latest is not None and data.percent_complete < latest.percent_complete:
             raise ConstructionConflictError("progress percentage may not decrease")
         now = datetime.now(UTC)
