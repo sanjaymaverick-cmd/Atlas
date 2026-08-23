@@ -19,6 +19,8 @@ from atlas.modules.commercial.schemas import (
     LabourComplianceCreate,
 )
 from atlas.modules.commercial.service import CommercialService
+from atlas.modules.documents.contracts import DocumentsContract
+from atlas.modules.documents.schemas import DocumentSummary, RevisionSummary
 from atlas.modules.identity.contracts import IdentityContract
 
 pytestmark = pytest.mark.unit
@@ -54,6 +56,46 @@ class SessionStub:
 
     async def scalar(self, statement: object) -> object | None:
         return self.scalar_value
+
+
+class DocumentsStub:
+    def __init__(self, project_id: UUID, document_id: UUID) -> None:
+        self.project_id = project_id
+        self.document_id = document_id
+
+    async def get_document(
+        self, session: object, *, actor_user_id: UUID, document_id: UUID
+    ) -> DocumentSummary:
+        return DocumentSummary(
+            document_id,
+            self.project_id,
+            None,
+            None,
+            "executed_contract",
+            "restricted",
+            "approved",
+            1,
+            None,
+        )
+
+    async def list_revisions(
+        self, session: object, *, actor_user_id: UUID, document_id: UUID
+    ) -> list[RevisionSummary]:
+        return [
+            RevisionSummary(
+                uuid4(),
+                document_id,
+                "SYN-1",
+                None,
+                None,
+                actor_user_id,
+                None,
+                "synthetic/contract.pdf",
+                "a" * 64,
+                "approved",
+                datetime.now(UTC),
+            )
+        ]
 
 
 async def ignore_audit(*args: object, **kwargs: object) -> None:
@@ -167,7 +209,10 @@ async def test_execution_evidence_is_recorded_without_sensitive_payload(
         archived_at=None,
     )
     document_id = uuid4()
-    result = await CommercialService(cast(IdentityContract, IdentityStub())).transition_contract(
+    result = await CommercialService(
+        cast(IdentityContract, IdentityStub()),
+        cast(DocumentsContract, DocumentsStub(row.project_id, document_id)),
+    ).transition_contract(
         cast(AsyncSession, SessionStub(row)),
         actor_user_id=uuid4(),
         contract_id=row.id,

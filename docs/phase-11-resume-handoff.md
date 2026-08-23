@@ -46,6 +46,13 @@ Updated: 2026-08-23 (Asia/Calcutta)
   event. Post-change verification passed 346 tests against real PostgreSQL with
   zero skips, Ruff, strict mypy over 157 files, all 25 import contracts,
   Bandit, pip-audit, and the sole Alembic head.
+- Phase 4 contract execution now validates evidence through the published
+  Documents contract. Evidence must be in the contract's project, unarchived,
+  approved or issued, and contain an approved or issued immutable revision.
+  PostgreSQL tests cover cross-project, draft, revision-less, and valid commit
+  paths. Post-change verification passed 350 tests against real PostgreSQL with
+  zero skips, Ruff, strict mypy over 157 files, all 25 import contracts,
+  Bandit, pip-audit, and the sole Alembic head.
 - Phase 11 remains blocked at the owner-only Blueprint section 25 AI-hosting
   decision. Do not select or implement an inference provider autonomously.
 - Before any staging operation, inspect ignored and untracked files as well as

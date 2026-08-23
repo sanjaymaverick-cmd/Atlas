@@ -141,9 +141,11 @@ rest are still open, and they are the ones that matter for a sign-off.
 
 - **Phase 4** — the application-only vendor-active purchase-order gate and the
   purchase-order issue/audit commit and explicit-rollback paths are now covered
-  by `test_commercial_service_audit.py` against PostgreSQL. Executed contracts
-  requiring immutable document evidence is still service-level and remains
-  open, as do concurrency/versioning and archival evidence for the phase.
+  by `test_commercial_service_audit.py` against PostgreSQL. Contract execution
+  now uses the published Documents contract and refuses cross-project,
+  archived/unapproved, or revision-less evidence; the valid controlled-evidence
+  path and same-transaction audit commit are covered too. Broader
+  concurrency/versioning and archival evidence remains open for the phase.
 - **Phase 6** — ~~the composite `(id, project_id)` foreign keys~~ now covered.
   Still open: "material issuance is serialized against its receipt and rejects
   cumulative quantities above accepted stock", which is a service-level check
@@ -209,9 +211,10 @@ explicit rollback atomicity for land-parcel creation;
 purchase-order gate plus issue/audit commit and explicit rollback. Continue
 phase by phase rather than extrapolating either domain's proof to the others.
 
-Next, in rough order of risk: Phase 4's executed-contract evidence gate, Phase
-9's refusal to import over pre-existing vouchers, Phase 6's cumulative material
-issuance check, and the remaining phase-by-phase service transaction proofs.
+Next, in rough order of risk: Phase 9's refusal to import over pre-existing
+vouchers, Phase 6's cumulative material issuance check, Phase 8's executed
+customer-contract linkage, and the remaining phase-by-phase service transaction
+proofs.
 Phase 10 production replication and refresh scheduling stay in the
 owner-reviewed deployment register rather than being simulated in code.
 

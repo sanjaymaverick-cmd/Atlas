@@ -49,6 +49,11 @@ from atlas.modules.commercial.schemas import (
     PurchaseOrderSummary,
     VendorOnboardingSummary,
 )
+from atlas.modules.documents.contracts import (
+    DocumentNotAuthorisedError,
+    DocumentNotFoundError,
+    DocumentsContract,
+)
 from atlas.modules.identity.contracts import IdentityContract
 from atlas.platform.audit.writer import record_event
 
@@ -232,8 +237,11 @@ def labour_summary(row: LabourComplianceRecord) -> LabourComplianceSummary:
 
 
 class CommercialService:
-    def __init__(self, identity: IdentityContract) -> None:
+    def __init__(
+        self, identity: IdentityContract, documents: DocumentsContract | None = None
+    ) -> None:
         self._identity = identity
+        self._documents = documents
 
     async def _require(
         self,
@@ -881,6 +889,35 @@ class CommercialService:
             raise CommercialConflictError(
                 "execution evidence is accepted only for executed transition"
             )
+        if execution is not None:
+            if not execution.execution_method.strip() or self._documents is None:
+                raise CommercialConflictError(
+                    "executed contract requires verifiable immutable document evidence"
+                )
+            try:
+                document = await self._documents.get_document(
+                    session,
+                    actor_user_id=actor_user_id,
+                    document_id=execution.executed_document_id,
+                )
+                revisions = await self._documents.list_revisions(
+                    session,
+                    actor_user_id=actor_user_id,
+                    document_id=execution.executed_document_id,
+                )
+            except (DocumentNotFoundError, DocumentNotAuthorisedError) as exc:
+                raise CommercialConflictError(
+                    "executed contract requires verifiable immutable document evidence"
+                ) from exc
+            if (
+                document.project_id != row.project_id
+                or document.archived_at is not None
+                or document.status not in {"approved", "issued"}
+                or not any(revision.status in {"approved", "issued"} for revision in revisions)
+            ):
+                raise CommercialConflictError(
+                    "executed contract requires approved project document evidence"
+                )
         before = {"status": row.status, "version": row.version}
         row.status = target_status
         if execution is not None:

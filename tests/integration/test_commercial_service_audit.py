@@ -12,7 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 
 from atlas.modules.commercial.contracts import CommercialConflictError
+from atlas.modules.commercial.schemas import ContractExecution
 from atlas.modules.commercial.service import CommercialService
+from atlas.modules.documents.service import DocumentsService
 from atlas.platform.audit.chain import AuditRecord, verify_chain
 
 pytestmark = [pytest.mark.integration]
@@ -145,6 +147,118 @@ async def _audit_chain(session: AsyncSession) -> list[AuditRecord]:
     return [AuditRecord(*row) for row in rows]
 
 
+async def _seed_contract_evidence(
+    session: AsyncSession,
+    *,
+    same_project: bool,
+    document_status: str,
+    revision_status: str,
+) -> tuple[UUID, UUID, UUID]:
+    actor_id, group_id, entity_id = uuid4(), uuid4(), uuid4()
+    contract_project_id, evidence_project_id = uuid4(), uuid4()
+    party_id, contract_id, document_id, revision_id = uuid4(), uuid4(), uuid4(), uuid4()
+    await session.execute(
+        text(
+            "INSERT INTO identity.users (id, full_name, email, status, version) "
+            "VALUES (:id, 'Synthetic Contract Actor', :email, 'active', 1)"
+        ),
+        {"id": actor_id, "email": f"contract-actor-{actor_id}@example.invalid"},
+    )
+    await session.execute(
+        text(
+            "INSERT INTO organization.business_groups (id, name, status, version) "
+            "VALUES (:id, 'Synthetic Contract Group', 'active', 1)"
+        ),
+        {"id": group_id},
+    )
+    await session.execute(
+        text(
+            "INSERT INTO organization.legal_entities "
+            "(id, business_group_id, name, status, version) "
+            "VALUES (:id, :group_id, 'Synthetic Contract Entity', 'active', 1)"
+        ),
+        {"id": entity_id, "group_id": group_id},
+    )
+    await session.execute(
+        text(
+            "INSERT INTO organization.projects "
+            "(id, legal_entity_id, name, code, status, version) VALUES "
+            "(:contract_project, :entity_id, 'Synthetic Contract Project', :contract_code, "
+            "'active', 1), "
+            "(:evidence_project, :entity_id, 'Synthetic Evidence Project', :evidence_code, "
+            "'active', 1)"
+        ),
+        {
+            "contract_project": contract_project_id,
+            "evidence_project": evidence_project_id,
+            "entity_id": entity_id,
+            "contract_code": f"SYN-CON-{contract_project_id}",
+            "evidence_code": f"SYN-EVD-{evidence_project_id}",
+        },
+    )
+    await session.execute(
+        text(
+            "INSERT INTO organization.parties "
+            "(id, party_type, legal_name, status, version) "
+            "VALUES (:id, 'vendor', 'Synthetic Contract Party', 'active', 1)"
+        ),
+        {"id": party_id},
+    )
+    await session.execute(
+        text(
+            "INSERT INTO contracts.contracts "
+            "(id, project_id, party_id, contract_type, value, status, created_by, "
+            "updated_by, version) VALUES "
+            "(:id, :project_id, :party_id, 'synthetic', 100, 'contract_execution', "
+            ":actor_id, :actor_id, 4)"
+        ),
+        {
+            "id": contract_id,
+            "project_id": contract_project_id,
+            "party_id": party_id,
+            "actor_id": actor_id,
+        },
+    )
+    await session.execute(
+        text(
+            "INSERT INTO documents.documents "
+            "(id, project_id, document_type, classification, status, created_by, "
+            "updated_by, version) VALUES "
+            "(:id, :project_id, 'executed_contract', 'restricted', :status, "
+            ":actor_id, :actor_id, 1)"
+        ),
+        {
+            "id": document_id,
+            "project_id": contract_project_id if same_project else evidence_project_id,
+            "status": document_status,
+            "actor_id": actor_id,
+        },
+    )
+    await session.execute(
+        text(
+            "INSERT INTO documents.document_versions "
+            "(id, document_id, revision_code, object_storage_key, checksum_sha256, "
+            "status, author_id) VALUES "
+            "(:id, :document_id, 'SYN-1', :object_key, :checksum, :status, :actor_id)"
+        ),
+        {
+            "id": revision_id,
+            "document_id": document_id,
+            "object_key": f"synthetic/contracts/{revision_id}.pdf",
+            "checksum": "a" * 64,
+            "status": revision_status,
+            "actor_id": actor_id,
+        },
+    )
+    await session.commit()
+    return actor_id, contract_id, document_id
+
+
+def _commercial_with_documents() -> CommercialService:
+    identity = AllowAllIdentity()
+    return CommercialService(identity, DocumentsService(identity))
+
+
 async def test_purchase_order_issue_refuses_approved_but_not_active_onboarding(
     async_session: AsyncSession,
 ) -> None:
@@ -214,3 +328,77 @@ async def test_purchase_order_issue_rollback_removes_state_change_and_event(
     ).one()
     assert tuple(row) == ("approved", None, 3)
     assert await _audit_chain(async_session) == []
+
+
+@pytest.mark.parametrize(
+    ("same_project", "document_status", "revision_status"),
+    [
+        (False, "approved", "approved"),
+        (True, "uploaded", "draft"),
+        (True, "approved", "draft"),
+    ],
+)
+async def test_contract_execution_rejects_uncontrolled_document_evidence(
+    async_session: AsyncSession,
+    *,
+    same_project: bool,
+    document_status: str,
+    revision_status: str,
+) -> None:
+    actor_id, contract_id, document_id = await _seed_contract_evidence(
+        async_session,
+        same_project=same_project,
+        document_status=document_status,
+        revision_status=revision_status,
+    )
+
+    with pytest.raises(CommercialConflictError, match="document evidence"):
+        await _commercial_with_documents().transition_contract(
+            async_session,
+            actor_user_id=actor_id,
+            contract_id=contract_id,
+            target_status="executed",
+            execution=ContractExecution("synthetic-esign", document_id),
+        )
+    await async_session.rollback()
+
+    state = (
+        await async_session.execute(
+            text(
+                "SELECT status, executed_document_id, executed_at, version "
+                "FROM contracts.contracts WHERE id = :id"
+            ),
+            {"id": contract_id},
+        )
+    ).one()
+    assert tuple(state) == ("contract_execution", None, None, 4)
+    assert await _audit_chain(async_session) == []
+
+
+async def test_contract_execution_commits_controlled_document_and_audit(
+    async_session: AsyncSession,
+) -> None:
+    actor_id, contract_id, document_id = await _seed_contract_evidence(
+        async_session,
+        same_project=True,
+        document_status="approved",
+        revision_status="approved",
+    )
+
+    executed = await _commercial_with_documents().transition_contract(
+        async_session,
+        actor_user_id=actor_id,
+        contract_id=contract_id,
+        target_status="executed",
+        execution=ContractExecution("synthetic-esign", document_id),
+    )
+    await async_session.commit()
+
+    chain = await _audit_chain(async_session)
+    assert executed.status == "executed"
+    assert executed.executed_document_id == document_id
+    assert executed.executed_at is not None and executed.version == 5
+    assert [(event.entity_schema, event.entity_table, event.action) for event in chain] == [
+        ("contracts", "contracts", "transition")
+    ]
+    assert verify_chain(chain) == 1

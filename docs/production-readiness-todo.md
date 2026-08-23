@@ -346,7 +346,13 @@ instance. None was introduced by Phase 11; all predate it.
   before production.
 - [ ] Select an e-signature provider and approve identity assurance, webhook
   signature verification, replay protection, evidence retention, data
-  residency, and provider-failure/manual fallback procedures.
+  residency, revocation, provider outage, key rotation, and manual-fallback
+  requirements.
+  Provisional integrity rule implemented 2026-08-23: execution accepts only a
+  non-archived approved/issued Documents record in the contract's project with
+  at least one approved/issued immutable revision. Validation goes through the
+  published Documents contract and requires the actor to retain document-read
+  authority; cross-project, draft, and revision-less evidence fail closed.
 - [ ] Approve contract/PO cancellation, supersession, dispute, payment, and
   expiry workflows. Confirm whether issued financial commitments require fresh
   passkey step-up and independent approval.

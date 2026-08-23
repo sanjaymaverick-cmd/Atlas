@@ -96,7 +96,9 @@ def create_app(
         compliance_service if compliance_service is not None else ComplianceService(identity)
     )
     commercial = (
-        commercial_service if commercial_service is not None else CommercialService(identity)
+        commercial_service
+        if commercial_service is not None
+        else CommercialService(identity, documents)
     )
     construction = (
         construction_service if construction_service is not None else ConstructionService(identity)
