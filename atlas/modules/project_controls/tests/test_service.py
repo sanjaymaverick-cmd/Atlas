@@ -51,7 +51,7 @@ class SessionStub:
         return self.row
 
     async def scalar(self, statement: object) -> object | None:
-        return self.scalars.pop(0) if self.scalars else None
+        return self.scalars.pop(0) if self.scalars else self.row
 
 
 async def no_audit(*args: object, **kwargs: object) -> None:

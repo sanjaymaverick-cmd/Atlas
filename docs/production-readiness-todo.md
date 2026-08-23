@@ -533,6 +533,14 @@ instance. None was introduced by Phase 11; all predate it.
   receipts and purchase orders, including how legacy rows should be remediated
   before migration. The migration fails closed rather than attaching a receipt
   to a purchase order in another project.
+  Migration `0015_phase6_scope_integrity` extends this fail-closed rule to BIM
+  source documents and objects, CostCode/quantity links, receipt certificates,
+  issuance evidence, and issuance receipt/project/material identity. Before
+  applying it to a populated environment, inventory all legacy null or
+  cross-project references, approve remediation evidence, rehearse lock time
+  and rollback, and retain a signed exception report. The migration backfills
+  only a null BIM-object project from its referenced import; it does not guess
+  how to repair contradictory non-null ownership.
 
 ## Phase 7 — Change management, RFIs, NCRs, and discrepancies
 

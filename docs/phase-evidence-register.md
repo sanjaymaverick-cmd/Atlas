@@ -210,9 +210,14 @@ rest are still open, and they are the ones that matter for a sign-off.
   through the published Documents contract before mutation. Ten PostgreSQL
   cases prove cross-project, draft, and archived evidence is refused unchanged;
   malware-cleared BIM and approved/issued certificate or issuance evidence
-  commit atomically with a valid privacy-minimized audit event. Returns,
-  transfers, wastage, unit conversion, and broader lifecycle evidence remain
-  open policy/workflow work.
+  commit atomically with a valid privacy-minimized audit event. Canonical DDL
+  and migration `0015_phase6_scope_integrity` now enforce project scope across
+  BIM source/object, CostCode/quantity, certificate, and issuance references,
+  plus receipt project/material identity. Direct SQL adversarial coverage proves
+  all seven invalid linkage shapes fail. BIM and quantity transitions row-lock
+  before authorization/state evaluation; two-session tests prove one winner,
+  and rollback tests prove state/version/audit atomicity. Returns, transfers,
+  wastage, unit conversion, and BIM-object import remain open workflow work.
 - **Phase 8** — active-unit double booking, installment-total over-allocation,
   and collection-to-installment over-allocation are now covered against
   PostgreSQL. Concurrent installment additions are serialized on the payment

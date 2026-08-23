@@ -172,6 +172,15 @@ Updated: 2026-08-23 (Asia/Calcutta)
   evidence, valid hash-chain events, and exclusion of batch/recipient narrative
   from audit payloads. The accepted evidence-state policy remains provisional
   and is recorded for owner review.
+- Phase 6 project scope is now enforced in canonical DDL and migration
+  `0015_phase6_scope_integrity` for BIM source/object, CostCode/quantity,
+  receipt-certificate, issuance-evidence, and receipt project/material links.
+  A direct-SQL PostgreSQL test proves seven invalid linkage shapes fail even
+  when services are bypassed. BIM and quantity transitions now acquire row
+  locks before authorization and state evaluation; two-session tests prove one
+  concurrent winner, while explicit rollback tests restore state/version and
+  audit together. Migration equivalence passes from empty. Phase 6 is not yet
+  complete: the BIM-object import/mapping boundary remains next.
 - Phase 11 remains blocked at the owner-only Blueprint section 25 AI-hosting
   decision. Do not select or implement an inference provider autonomously.
 - Before any staging operation, inspect ignored and untracked files as well as

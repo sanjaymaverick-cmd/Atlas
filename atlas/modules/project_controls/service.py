@@ -245,7 +245,7 @@ class ProjectControlsService:
     async def transition_bim_import(
         self, s: AsyncSession, *, actor_user_id: UUID, import_id: UUID, target_status: str
     ) -> BimImportSummary:
-        row = await s.get(BimImport, import_id)
+        row = await s.scalar(select(BimImport).where(BimImport.id == import_id).with_for_update())
         if row is None:
             raise ProjectControlsNotFoundError(f"BIM import {import_id} does not exist")
         if row.source_document_id is None:
@@ -383,7 +383,9 @@ class ProjectControlsService:
     async def verify_quantity(
         self, s: AsyncSession, *, actor_user_id: UUID, quantity_id: UUID, verified_quantity: Decimal
     ) -> QuantitySummary:
-        row = await s.get(QuantityItem, quantity_id)
+        row = await s.scalar(
+            select(QuantityItem).where(QuantityItem.id == quantity_id).with_for_update()
+        )
         if row is None:
             raise ProjectControlsNotFoundError(f"quantity {quantity_id} does not exist")
         await self._require(s, actor_user_id, "quantities.item.verify", row.project_id)
@@ -423,7 +425,9 @@ class ProjectControlsService:
     async def approve_quantity(
         self, s: AsyncSession, *, actor_user_id: UUID, quantity_id: UUID, final_quantity: Decimal
     ) -> QuantitySummary:
-        row = await s.get(QuantityItem, quantity_id)
+        row = await s.scalar(
+            select(QuantityItem).where(QuantityItem.id == quantity_id).with_for_update()
+        )
         if row is None:
             raise ProjectControlsNotFoundError(f"quantity {quantity_id} does not exist")
         await self._require(s, actor_user_id, "quantities.item.approve", row.project_id)

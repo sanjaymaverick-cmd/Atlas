@@ -284,7 +284,8 @@ CREATE TABLE documents.documents (
   created_by     UUID REFERENCES identity.users(id),
   updated_by     UUID REFERENCES identity.users(id),
   version        INTEGER NOT NULL DEFAULT 1,
-  archived_at    TIMESTAMPTZ
+  archived_at    TIMESTAMPTZ,
+  CONSTRAINT uq_documents_id_project UNIQUE (id, project_id)
 );
 
 CREATE TABLE documents.document_versions (
@@ -494,7 +495,7 @@ CREATE TABLE design.bim_imports (
   id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id             UUID NOT NULL REFERENCES organization.projects(id),
   source_file_reference  TEXT NOT NULL,
-  source_document_id     UUID REFERENCES documents.documents(id),
+  source_document_id     UUID,
   import_status          TEXT NOT NULL DEFAULT 'received' CHECK (import_status IN ('received','validating','validated','rejected','imported')),
   validated_at           TIMESTAMPTZ,
   validated_by           UUID REFERENCES identity.users(id),
@@ -503,15 +504,19 @@ CREATE TABLE design.bim_imports (
   created_by             UUID REFERENCES identity.users(id),
   updated_by             UUID REFERENCES identity.users(id),
   version                INTEGER NOT NULL DEFAULT 1,
-  archived_at            TIMESTAMPTZ
+  archived_at            TIMESTAMPTZ,
+  CONSTRAINT uq_bim_import_id_project UNIQUE (id, project_id),
+  CONSTRAINT fk_bim_import_source_project
+    FOREIGN KEY (source_document_id, project_id)
+    REFERENCES documents.documents(id, project_id)
 );
 
 CREATE TABLE design.bim_objects (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  bim_import_id   UUID NOT NULL REFERENCES design.bim_imports(id),
+  bim_import_id   UUID NOT NULL,
   ifc_guid        TEXT,
   object_type     TEXT,       -- work package, material, asset, etc.
-  project_id      UUID REFERENCES organization.projects(id),
+  project_id      UUID NOT NULL REFERENCES organization.projects(id),
   building_id     UUID REFERENCES organization.buildings(id),
   floor_id        UUID REFERENCES organization.floors(id),
   unit_id         UUID REFERENCES organization.units(id),
@@ -519,7 +524,11 @@ CREATE TABLE design.bim_objects (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   created_by      UUID REFERENCES identity.users(id),
   archived_at     TIMESTAMPTZ,
-  UNIQUE (bim_import_id, ifc_guid)
+  UNIQUE (bim_import_id, ifc_guid),
+  CONSTRAINT uq_bim_object_id_project UNIQUE (id, project_id),
+  CONSTRAINT fk_bim_object_import_project
+    FOREIGN KEY (bim_import_id, project_id)
+    REFERENCES design.bim_imports(id, project_id)
 );
 
 -- =====================================================================
@@ -541,14 +550,15 @@ CREATE TABLE quantities.cost_codes (
   version          INTEGER NOT NULL DEFAULT 1,
   archived_at      TIMESTAMPTZ,
   CHECK (wbs_level >= 1),
-  UNIQUE (project_id, code)
+  UNIQUE (project_id, code),
+  CONSTRAINT uq_cost_code_id_project UNIQUE (id, project_id)
 );
 
 CREATE TABLE quantities.quantity_items (
   id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id             UUID NOT NULL REFERENCES organization.projects(id),
-  cost_code_id           UUID REFERENCES quantities.cost_codes(id),
-  bim_object_id          UUID REFERENCES design.bim_objects(id),
+  cost_code_id           UUID,
+  bim_object_id          UUID,
   work_package           TEXT,
   calculated_quantity    NUMERIC(16,4),
   verified_quantity      NUMERIC(16,4),
@@ -567,7 +577,13 @@ CREATE TABLE quantities.quantity_items (
   CHECK (verified_quantity IS NULL OR verified_quantity >= 0),
   CHECK (final_approved_quantity IS NULL OR final_approved_quantity >= 0),
   CHECK (tolerance_pct BETWEEN 0 AND 100),
-  UNIQUE (id, project_id)
+  UNIQUE (id, project_id),
+  CONSTRAINT fk_quantity_cost_code_project
+    FOREIGN KEY (cost_code_id, project_id)
+    REFERENCES quantities.cost_codes(id, project_id),
+  CONSTRAINT fk_quantity_bim_object_project
+    FOREIGN KEY (bim_object_id, project_id)
+    REFERENCES design.bim_objects(id, project_id)
 );
 
 -- =====================================================================
@@ -1053,7 +1069,7 @@ CREATE TABLE inventory.material_receipts (
   material_id        UUID NOT NULL REFERENCES inventory.materials(id),
   quantity_received  NUMERIC(16,4) NOT NULL CHECK (quantity_received > 0),
   batch_reference    TEXT,
-  certificate_document_id UUID REFERENCES documents.documents(id),
+  certificate_document_id UUID,
   received_date      DATE NOT NULL,
   status             TEXT NOT NULL DEFAULT 'received' CHECK (status IN ('received','rejected','partial')),
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -1062,25 +1078,35 @@ CREATE TABLE inventory.material_receipts (
   updated_by         UUID REFERENCES identity.users(id),
   version            INTEGER NOT NULL DEFAULT 1,
   archived_at        TIMESTAMPTZ,
+  CONSTRAINT uq_material_receipt_scope UNIQUE (id, project_id, material_id),
   FOREIGN KEY (purchase_order_id, project_id)
-    REFERENCES procurement.purchase_orders(id, project_id)
+    REFERENCES procurement.purchase_orders(id, project_id),
+  CONSTRAINT fk_material_receipt_certificate_project
+    FOREIGN KEY (certificate_document_id, project_id)
+    REFERENCES documents.documents(id, project_id)
 );
 
 CREATE TABLE inventory.material_issuances (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id    UUID NOT NULL REFERENCES organization.projects(id),
   material_id   UUID NOT NULL REFERENCES inventory.materials(id),
-  material_receipt_id UUID NOT NULL REFERENCES inventory.material_receipts(id),
+  material_receipt_id UUID NOT NULL,
   quantity_issued NUMERIC(16,4) NOT NULL CHECK (quantity_issued > 0),
   issued_to     TEXT,
   issued_date   DATE NOT NULL,
-  evidence_document_id UUID REFERENCES documents.documents(id),
+  evidence_document_id UUID,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   created_by    UUID REFERENCES identity.users(id),
   updated_by    UUID REFERENCES identity.users(id),
   version       INTEGER NOT NULL DEFAULT 1,
-  archived_at   TIMESTAMPTZ
+  archived_at   TIMESTAMPTZ,
+  CONSTRAINT fk_material_issuance_receipt_scope
+    FOREIGN KEY (material_receipt_id, project_id, material_id)
+    REFERENCES inventory.material_receipts(id, project_id, material_id),
+  CONSTRAINT fk_material_issuance_evidence_project
+    FOREIGN KEY (evidence_document_id, project_id)
+    REFERENCES documents.documents(id, project_id)
 );
 
 CREATE INDEX idx_bim_imports_project ON design.bim_imports(project_id);
