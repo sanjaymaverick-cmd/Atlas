@@ -13,6 +13,10 @@ from atlas.modules.construction.schemas import (
     InspectionCompletion,
     InspectionCreate,
     InspectionSummary,
+    MeetingActionCreate,
+    MeetingActionSummary,
+    MeetingCreate,
+    MeetingSummary,
     ProgressCreate,
     ProgressSummary,
     ScheduleCreate,
@@ -51,6 +55,28 @@ class ConstructionContract(Protocol):
     async def submit_site_diary(
         self, session: AsyncSession, *, actor_user_id: UUID, data: SiteDiaryCreate
     ) -> SiteDiarySummary: ...
+    async def create_meeting(
+        self, session: AsyncSession, *, actor_user_id: UUID, data: MeetingCreate
+    ) -> MeetingSummary: ...
+    async def create_meeting_action(
+        self,
+        session: AsyncSession,
+        *,
+        actor_user_id: UUID,
+        meeting_id: UUID,
+        data: MeetingActionCreate,
+    ) -> MeetingActionSummary: ...
+    async def transition_meeting_action(
+        self,
+        session: AsyncSession,
+        *,
+        actor_user_id: UUID,
+        action_id: UUID,
+        target_status: str,
+    ) -> MeetingActionSummary: ...
+    async def close_meeting(
+        self, session: AsyncSession, *, actor_user_id: UUID, meeting_id: UUID
+    ) -> MeetingSummary: ...
     async def create_ehs_incident(
         self, session: AsyncSession, *, actor_user_id: UUID, data: EhsCreate
     ) -> EhsSummary: ...
@@ -107,6 +133,12 @@ class ConstructionContract(Protocol):
     async def archive_snag(
         self, session: AsyncSession, *, actor_user_id: UUID, snag_id: UUID
     ) -> SnagSummary: ...
+    async def archive_meeting(
+        self, session: AsyncSession, *, actor_user_id: UUID, meeting_id: UUID
+    ) -> MeetingSummary: ...
+    async def archive_meeting_action(
+        self, session: AsyncSession, *, actor_user_id: UUID, action_id: UUID
+    ) -> MeetingActionSummary: ...
     async def list_activities(
         self, session: AsyncSession, *, actor_user_id: UUID, project_id: UUID
     ) -> list[ScheduleSummary]: ...
@@ -122,3 +154,9 @@ class ConstructionContract(Protocol):
     async def list_snags(
         self, session: AsyncSession, *, actor_user_id: UUID, project_id: UUID
     ) -> list[SnagSummary]: ...
+    async def list_meetings(
+        self, session: AsyncSession, *, actor_user_id: UUID, project_id: UUID
+    ) -> list[MeetingSummary]: ...
+    async def list_meeting_actions(
+        self, session: AsyncSession, *, actor_user_id: UUID, meeting_id: UUID
+    ) -> list[MeetingActionSummary]: ...

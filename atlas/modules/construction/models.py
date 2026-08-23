@@ -84,6 +84,29 @@ class ProgressUpdate(AuditColumns, Base):
     evidence_document_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
 
 
+class MeetingRegister(AuditColumns, Base):
+    __tablename__ = "meeting_registers"
+    __table_args__ = {"schema": "construction"}
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    meeting_date: Mapped[date] = mapped_column(Date)
+    participants: Mapped[list[str] | None] = mapped_column(JSONB)
+    decisions: Mapped[list[str] | None] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(String)
+
+
+class MeetingActionItem(AuditColumns, Base):
+    __tablename__ = "meeting_action_items"
+    __table_args__ = {"schema": "construction"}
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    meeting_register_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    description: Mapped[str] = mapped_column(String)
+    responsible_user_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    due_date: Mapped[date | None] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String)
+
+
 class InspectionTemplate(AuditColumns, Base):
     __tablename__ = "inspection_templates"
     __table_args__ = {"schema": "quality"}

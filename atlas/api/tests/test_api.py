@@ -22,7 +22,12 @@ from atlas.modules.compliance.schemas import (
     ComplianceObligationCreate,
     ComplianceObligationSummary,
 )
-from atlas.modules.construction.schemas import SiteDiaryCreate, SiteDiarySummary
+from atlas.modules.construction.schemas import (
+    MeetingCreate,
+    MeetingSummary,
+    SiteDiaryCreate,
+    SiteDiarySummary,
+)
 from atlas.modules.customer_lifecycle.schemas import BookingCreate, BookingSummary
 from atlas.modules.documents.contracts import DocumentConflictError
 from atlas.modules.documents.schemas import (
@@ -365,6 +370,21 @@ class FakeConstruction:
             "submitted",
             2,
             datetime(2026, 8, 23, tzinfo=UTC),
+        )
+
+    async def create_meeting(
+        self, session: object, *, actor_user_id: UUID, data: MeetingCreate
+    ) -> MeetingSummary:
+        self.calls.append(data)
+        return MeetingSummary(
+            uuid4(),
+            data.project_id,
+            data.meeting_date,
+            len(set(data.participant_user_ids)),
+            len(data.decisions),
+            "recorded",
+            1,
+            None,
         )
 
 
@@ -849,6 +869,28 @@ async def test_phase5_site_diary_archive_route_is_a_thin_contract_call() -> None
     assert response.json()["version"] == 2
     assert response.json()["archived_at"] == "2026-08-23T00:00:00Z"
     assert construction.calls == [("archive_site_diary", ACTOR_ID, diary_id)]
+    assert sessions.sessions[0].commits == 1
+
+
+async def test_phase5_meeting_route_returns_counts_not_private_content() -> None:
+    construction = FakeConstruction()
+    client, _, sessions = build_client(construction=construction)
+    async with client:
+        response = await client.post(
+            f"/api/v1/projects/{PROJECT_ID}/meetings",
+            json={
+                "meeting_date": "2026-08-24",
+                "participant_user_ids": [str(ACTOR_ID), str(ACTOR_ID)],
+                "decisions": ["SYNTHETIC PRIVATE MEETING DECISION"],
+            },
+        )
+    assert response.status_code == 201
+    assert response.json()["participant_count"] == 1
+    assert response.json()["decision_count"] == 1
+    assert "decisions" not in response.json()
+    call = construction.calls[0]
+    assert isinstance(call, MeetingCreate)
+    assert call.decisions == ("SYNTHETIC PRIVATE MEETING DECISION",)
     assert sessions.sessions[0].commits == 1
 
 

@@ -189,9 +189,10 @@ signatures, credentials, or raw evidence into reference fields or API logs.
 
 Phase 5 operations cover schedule activities and progress, offline-idempotent
 site diaries, EHS incidents, inspection templates and executions, document-backed
-evidence, and snag lifecycles under `/api/v1`. Visitor information is accepted as
-a count only; safety narratives and checklist content are excluded from audit
-payloads. Archive endpoints are available for all seven Phase 5 record types;
+evidence, snag lifecycles, and project meeting/action registers under `/api/v1`.
+Visitor information is accepted as a count only; safety narratives, meeting
+decisions, action descriptions, and checklist content are excluded from audit
+payloads. Archive endpoints are available for all Phase 5 lifecycle records;
 lifecycle records must reach their terminal state first, repeated archive calls
 are idempotent, and archive/version/audit changes share one transaction.
 PostgreSQL integration tests require `ATLAS_TEST_DATABASE_URL` and are reported

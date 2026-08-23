@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, cast
+from typing import Annotated, Any, cast
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -15,6 +15,8 @@ from atlas.modules.construction.schemas import (
     InspectionCompletion,
     InspectionCreate,
     MaterialMovement,
+    MeetingActionCreate,
+    MeetingCreate,
     ProgressCreate,
     ScheduleCreate,
     SiteDiaryCreate,
@@ -99,6 +101,33 @@ class EhsCreateRequest(BaseModel):
 
     def to_dto(self, project_id: UUID) -> EhsCreate:
         return EhsCreate(project_id=project_id, **self.model_dump())
+
+
+class MeetingCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    meeting_date: date
+    participant_user_ids: list[UUID] = Field(default_factory=list, max_length=200)
+    decisions: list[Annotated[str, Field(min_length=1, max_length=4000)]] = Field(
+        default_factory=list, max_length=100
+    )
+
+    def to_dto(self, project_id: UUID) -> MeetingCreate:
+        return MeetingCreate(
+            project_id,
+            self.meeting_date,
+            tuple(self.participant_user_ids),
+            tuple(self.decisions),
+        )
+
+
+class MeetingActionCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    description: str = Field(min_length=1, max_length=4000)
+    responsible_user_id: UUID | None = None
+    due_date: date | None = None
+
+    def to_dto(self) -> MeetingActionCreate:
+        return MeetingActionCreate(**self.model_dump())
 
 
 class ChecklistItemRequest(BaseModel):
@@ -212,6 +241,31 @@ EhsResponse = response_model(
         "project_id": (UUID, ...),
         "incident_date": (date, ...),
         "severity": (str, ...),
+        "status": (str, ...),
+        **AuditFields,
+    },
+)
+MeetingResponse = response_model(
+    "MeetingResponse",
+    {
+        "id": (UUID, ...),
+        "project_id": (UUID, ...),
+        "meeting_date": (date, ...),
+        "participant_count": (int, ...),
+        "decision_count": (int, ...),
+        "status": (str, ...),
+        **AuditFields,
+    },
+)
+MeetingActionResponse = response_model(
+    "MeetingActionResponse",
+    {
+        "id": (UUID, ...),
+        "meeting_register_id": (UUID, ...),
+        "project_id": (UUID, ...),
+        "description": (str, ...),
+        "responsible_user_id": (UUID | None, ...),
+        "due_date": (date | None, ...),
         "status": (str, ...),
         **AuditFields,
     },

@@ -444,6 +444,30 @@ instance. None was introduced by Phase 11; all predate it.
 - [ ] Confirm that archived progress remains part of the monotonic progress
   history. The service intentionally includes archived updates when checking
   later percentages, so archival cannot enable a lower replacement value.
+- [ ] Approve the provisional construction-meeting policy implemented
+  2026-08-24. Meetings are `recorded` then `closed`; action items are `open`,
+  `overdue`, or `done`. New actions serialize on the meeting row, closed or
+  archived meetings reject new actions, and closure requires every active
+  action to be done. Confirm whether a meeting with zero actions may close,
+  who may mark an action overdue/done, whether the responsible user must be the
+  completer, and whether closure needs independent approval or fresh step-up.
+- [ ] Classify meeting participant references, decisions, and action
+  descriptions. The provisional API accepts participant user UUIDs only,
+  returns participant/decision counts in meeting summaries, and excludes
+  decisions and action descriptions from audit payloads. Content remains in
+  PostgreSQL behind scoped access; approve encryption, retention, legal hold,
+  export, redaction, and disclosure rules before real meeting content is used.
+- [ ] Decide how meeting participants and action owners are validated. Database
+  foreign keys validate action-owner identity existence, but the service does
+  not yet prove that participant UUIDs are active users or that participants
+  and responsible users belong to the project's authorized organization scope.
+- [ ] Grant and review the provisional meeting permissions before deployment:
+  `construction.meeting.create`, `construction.meeting.action.create`,
+  `construction.meeting.action.update`, `construction.meeting.close`,
+  `construction.meeting.archive`, and
+  `construction.meeting.action.archive`. Reads currently use the shared
+  `construction.read` permission. No production role assignment is selected in
+  source.
 
 ## Phase 6 — BIM, quantities, WBS, and material traceability
 

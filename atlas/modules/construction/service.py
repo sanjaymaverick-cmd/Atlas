@@ -20,6 +20,8 @@ from atlas.modules.construction.models import (
     Inspection,
     InspectionEvidence,
     InspectionTemplate,
+    MeetingActionItem,
+    MeetingRegister,
     ProgressUpdate,
     ScheduleActivity,
     SiteDiaryEntry,
@@ -31,6 +33,10 @@ from atlas.modules.construction.schemas import (
     InspectionCompletion,
     InspectionCreate,
     InspectionSummary,
+    MeetingActionCreate,
+    MeetingActionSummary,
+    MeetingCreate,
+    MeetingSummary,
     ProgressCreate,
     ProgressSummary,
     ScheduleCreate,
@@ -67,6 +73,10 @@ SNAG_TRANSITIONS = {
     "rectified": frozenset({"verified", "assigned"}),
     "verified": frozenset({"closed", "assigned"}),
 }
+MEETING_ACTION_TRANSITIONS = {
+    "open": frozenset({"done", "overdue"}),
+    "overdue": frozenset({"done"}),
+}
 
 ArchivableRow = (
     ScheduleActivity
@@ -76,6 +86,8 @@ ArchivableRow = (
     | InspectionTemplate
     | Inspection
     | SnagItem
+    | MeetingRegister
+    | MeetingActionItem
 )
 
 
@@ -147,6 +159,33 @@ def snag_summary(r: SnagItem) -> SnagSummary:
         r.assigned_to,
         r.due_date,
         r.evidence_document_id,
+        r.status,
+        r.version,
+        r.archived_at,
+    )
+
+
+def meeting_summary(r: MeetingRegister) -> MeetingSummary:
+    return MeetingSummary(
+        r.id,
+        r.project_id,
+        r.meeting_date,
+        len(r.participants or []),
+        len(r.decisions or []),
+        r.status,
+        r.version,
+        r.archived_at,
+    )
+
+
+def meeting_action_summary(r: MeetingActionItem) -> MeetingActionSummary:
+    return MeetingActionSummary(
+        r.id,
+        r.meeting_register_id,
+        r.project_id,
+        r.description,
+        r.responsible_user_id,
+        r.due_date,
         r.status,
         r.version,
         r.archived_at,
@@ -559,6 +598,208 @@ class ConstructionService:
             },
         )
         return diary_summary(row)
+
+    async def create_meeting(
+        self, session: AsyncSession, *, actor_user_id: UUID, data: MeetingCreate
+    ) -> MeetingSummary:
+        await self._require(
+            session,
+            actor=actor_user_id,
+            permission="construction.meeting.create",
+            project_id=data.project_id,
+        )
+        participants = [str(value) for value in dict.fromkeys(data.participant_user_ids)]
+        decisions = [value.strip() for value in data.decisions if value.strip()]
+        if len(decisions) != len(data.decisions):
+            raise ConstructionConflictError("meeting decisions may not be blank")
+        now = datetime.now(UTC)
+        row = MeetingRegister(
+            id=uuid4(),
+            project_id=data.project_id,
+            meeting_date=data.meeting_date,
+            participants=participants,
+            decisions=decisions,
+            status="recorded",
+            created_at=now,
+            updated_at=now,
+            created_by=actor_user_id,
+            updated_by=actor_user_id,
+            version=1,
+            archived_at=None,
+        )
+        session.add(row)
+        await session.flush()
+        await self._audit(
+            session,
+            actor=actor_user_id,
+            schema="construction",
+            table="meeting_registers",
+            row_id=row.id,
+            action="create",
+            before=None,
+            after={
+                "project_id": str(row.project_id),
+                "meeting_date": row.meeting_date,
+                "participant_count": len(participants),
+                "decision_count": len(decisions),
+                "status": row.status,
+                "version": 1,
+            },
+        )
+        return meeting_summary(row)
+
+    async def create_meeting_action(
+        self,
+        session: AsyncSession,
+        *,
+        actor_user_id: UUID,
+        meeting_id: UUID,
+        data: MeetingActionCreate,
+    ) -> MeetingActionSummary:
+        meeting = await session.scalar(
+            select(MeetingRegister).where(MeetingRegister.id == meeting_id).with_for_update()
+        )
+        if meeting is None:
+            raise ConstructionNotFoundError(f"meeting {meeting_id} does not exist")
+        await self._require(
+            session,
+            actor=actor_user_id,
+            permission="construction.meeting.action.create",
+            project_id=meeting.project_id,
+        )
+        if meeting.archived_at is not None or meeting.status != "recorded":
+            raise ConstructionConflictError("meeting must be active and recorded")
+        description = data.description.strip()
+        if not description:
+            raise ConstructionConflictError("meeting action description may not be blank")
+        now = datetime.now(UTC)
+        row = MeetingActionItem(
+            id=uuid4(),
+            meeting_register_id=meeting.id,
+            project_id=meeting.project_id,
+            description=description,
+            responsible_user_id=data.responsible_user_id,
+            due_date=data.due_date,
+            status="open",
+            created_at=now,
+            updated_at=now,
+            created_by=actor_user_id,
+            updated_by=actor_user_id,
+            version=1,
+            archived_at=None,
+        )
+        session.add(row)
+        await session.flush()
+        await self._audit(
+            session,
+            actor=actor_user_id,
+            schema="construction",
+            table="meeting_action_items",
+            row_id=row.id,
+            action="create",
+            before=None,
+            after={
+                "meeting_register_id": str(row.meeting_register_id),
+                "project_id": str(row.project_id),
+                "responsible_user_id": str(row.responsible_user_id)
+                if row.responsible_user_id
+                else None,
+                "due_date": row.due_date,
+                "status": row.status,
+                "version": 1,
+            },
+        )
+        return meeting_action_summary(row)
+
+    async def transition_meeting_action(
+        self,
+        session: AsyncSession,
+        *,
+        actor_user_id: UUID,
+        action_id: UUID,
+        target_status: str,
+    ) -> MeetingActionSummary:
+        row = await session.scalar(
+            select(MeetingActionItem).where(MeetingActionItem.id == action_id).with_for_update()
+        )
+        if row is None:
+            raise ConstructionNotFoundError(f"meeting action {action_id} does not exist")
+        await self._require(
+            session,
+            actor=actor_user_id,
+            permission="construction.meeting.action.update",
+            project_id=row.project_id,
+        )
+        if row.archived_at is not None:
+            raise ConstructionConflictError("archived meeting action cannot transition")
+        if target_status not in MEETING_ACTION_TRANSITIONS.get(row.status, frozenset()):
+            raise ConstructionConflictError(
+                f"meeting action cannot move from {row.status} to {target_status}"
+            )
+        before = {"status": row.status, "version": row.version}
+        row.status = target_status
+        row.updated_at = datetime.now(UTC)
+        row.updated_by = actor_user_id
+        row.version += 1
+        await session.flush()
+        await self._audit(
+            session,
+            actor=actor_user_id,
+            schema="construction",
+            table="meeting_action_items",
+            row_id=row.id,
+            action="transition",
+            before=before,
+            after={"status": row.status, "version": row.version},
+        )
+        return meeting_action_summary(row)
+
+    async def close_meeting(
+        self, session: AsyncSession, *, actor_user_id: UUID, meeting_id: UUID
+    ) -> MeetingSummary:
+        row = await session.scalar(
+            select(MeetingRegister).where(MeetingRegister.id == meeting_id).with_for_update()
+        )
+        if row is None:
+            raise ConstructionNotFoundError(f"meeting {meeting_id} does not exist")
+        await self._require(
+            session,
+            actor=actor_user_id,
+            permission="construction.meeting.close",
+            project_id=row.project_id,
+        )
+        if row.archived_at is not None:
+            raise ConstructionConflictError("archived meeting cannot close")
+        if row.status != "recorded":
+            raise ConstructionConflictError("only a recorded meeting may close")
+        unfinished = await session.scalar(
+            select(MeetingActionItem.id)
+            .where(
+                MeetingActionItem.meeting_register_id == row.id,
+                MeetingActionItem.archived_at.is_(None),
+                MeetingActionItem.status != "done",
+            )
+            .limit(1)
+        )
+        if unfinished is not None:
+            raise ConstructionConflictError("meeting cannot close with unfinished actions")
+        before = {"status": row.status, "version": row.version}
+        row.status = "closed"
+        row.updated_at = datetime.now(UTC)
+        row.updated_by = actor_user_id
+        row.version += 1
+        await session.flush()
+        await self._audit(
+            session,
+            actor=actor_user_id,
+            schema="construction",
+            table="meeting_registers",
+            row_id=row.id,
+            action="close",
+            before=before,
+            after={"status": row.status, "version": row.version},
+        )
+        return meeting_summary(row)
 
     async def create_ehs_incident(
         self, session: AsyncSession, *, actor_user_id: UUID, data: EhsCreate
@@ -1188,6 +1429,46 @@ class ConstructionService:
         )
         return snag_summary(row)
 
+    async def archive_meeting(
+        self, session: AsyncSession, *, actor_user_id: UUID, meeting_id: UUID
+    ) -> MeetingSummary:
+        row = await session.scalar(
+            select(MeetingRegister).where(MeetingRegister.id == meeting_id).with_for_update()
+        )
+        if row is None:
+            raise ConstructionNotFoundError(f"meeting {meeting_id} does not exist")
+        await self._archive_row(
+            session,
+            actor_user_id=actor_user_id,
+            row=row,
+            permission="construction.meeting.archive",
+            schema="construction",
+            table="meeting_registers",
+            required_status="closed",
+            record_label="meeting",
+        )
+        return meeting_summary(row)
+
+    async def archive_meeting_action(
+        self, session: AsyncSession, *, actor_user_id: UUID, action_id: UUID
+    ) -> MeetingActionSummary:
+        row = await session.scalar(
+            select(MeetingActionItem).where(MeetingActionItem.id == action_id).with_for_update()
+        )
+        if row is None:
+            raise ConstructionNotFoundError(f"meeting action {action_id} does not exist")
+        await self._archive_row(
+            session,
+            actor_user_id=actor_user_id,
+            row=row,
+            permission="construction.meeting.action.archive",
+            schema="construction",
+            table="meeting_action_items",
+            required_status="done",
+            record_label="meeting action",
+        )
+        return meeting_action_summary(row)
+
     # -- reads ------------------------------------------------------------
     # Added 2026-08-20; this module previously published writes only.
     # Site diaries, EHS narratives and inspection notes are returned to an
@@ -1263,3 +1544,42 @@ class ConstructionService:
             .order_by(SnagItem.created_at)
         )
         return [snag_summary(row) for row in result.scalars()]
+
+    async def list_meetings(
+        self, session: AsyncSession, *, actor_user_id: UUID, project_id: UUID
+    ) -> list[MeetingSummary]:
+        await self._require(
+            session, actor=actor_user_id, permission=PERM_READ, project_id=project_id
+        )
+        result = await session.execute(
+            select(MeetingRegister)
+            .where(MeetingRegister.project_id == project_id)
+            .where(MeetingRegister.archived_at.is_(None))
+            .order_by(MeetingRegister.meeting_date.desc(), MeetingRegister.id)
+        )
+        return [meeting_summary(row) for row in result.scalars()]
+
+    async def list_meeting_actions(
+        self, session: AsyncSession, *, actor_user_id: UUID, meeting_id: UUID
+    ) -> list[MeetingActionSummary]:
+        meeting = await session.scalar(
+            select(MeetingRegister).where(
+                MeetingRegister.id == meeting_id,
+                MeetingRegister.archived_at.is_(None),
+            )
+        )
+        if meeting is None:
+            raise ConstructionNotFoundError(f"meeting {meeting_id} does not exist")
+        await self._require(
+            session,
+            actor=actor_user_id,
+            permission=PERM_READ,
+            project_id=meeting.project_id,
+        )
+        result = await session.execute(
+            select(MeetingActionItem)
+            .where(MeetingActionItem.meeting_register_id == meeting_id)
+            .where(MeetingActionItem.archived_at.is_(None))
+            .order_by(MeetingActionItem.due_date, MeetingActionItem.id)
+        )
+        return [meeting_action_summary(row) for row in result.scalars()]

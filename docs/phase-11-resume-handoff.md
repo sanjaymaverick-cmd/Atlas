@@ -132,8 +132,21 @@ Updated: 2026-08-23 (Asia/Calcutta)
   with zero skips, Ruff, strict mypy over 157 files, all 25 import contracts,
   Bandit, and pip-audit. Do not mistake this for Phase 5 completion: the
   Blueprint's mobile-first offline diary and no-code QA/QC template builder are
-  not yet implemented as dedicated experiences, and construction meeting
-  registers/action items still have no service/API layer.
+  not yet implemented as dedicated experiences.
+- Phase 5 construction meetings now have scoped, versioned, audited services
+  and thin HTTP routes for meeting/action creation, ordered action transition,
+  meeting closure, reads, and terminal archival. Action creation and closure
+  serialize on the meeting row, closure refuses unfinished actions, and a
+  composite foreign key prevents cross-project action linkage. Decisions and
+  action descriptions stay out of audit payloads; meeting summaries expose
+  counts rather than decision content. Canonical DDL and migration
+  `0014_phase5_meeting_integrity` are equivalent from an empty database.
+  Post-change verification passed 436 tests against real PostgreSQL with zero
+  skips, Ruff, strict mypy over 157 files, all 25 import contracts, Bandit,
+  pip-audit, migration equivalence, and sole Alembic head
+  `0014_phase5_meeting_integrity`. Phase 5 is still not complete: implement and
+  verify the dedicated mobile-first offline Site Diary and no-code QA/QC
+  template-builder experiences next.
 - Phase 11 remains blocked at the owner-only Blueprint section 25 AI-hosting
   decision. Do not select or implement an inference provider autonomously.
 - Before any staging operation, inspect ignored and untracked files as well as

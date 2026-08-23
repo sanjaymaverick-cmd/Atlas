@@ -186,9 +186,16 @@ rest are still open, and they are the ones that matter for a sign-off.
   exactly one domain row and one valid privacy-minimized audit event, while an
   explicit rollback removes both. Progress creation retains its separate
   chronological, monotonic, evidence, rollback, and concurrency suite.
-  This strengthens the service evidence but does not complete the Blueprint
-  phase: meeting registers/action items, the mobile-first offline diary client,
-  and the no-code QA/QC template-builder experience remain open.
+  Meeting registers/action items now have a service/API layer too. Meeting
+  creation, action creation, ordered action transitions, closure, reads, and
+  terminal archival are scoped and audited. The meeting row lock serializes
+  action creation with closure; closure refuses unfinished actions. PostgreSQL
+  tests cover commit/rollback, minimized audit payloads, idempotent archival,
+  concurrent create-versus-close, and the composite project foreign key.
+  Canonical DDL and sole migration head `0014_phase5_meeting_integrity` are
+  equivalent from an empty database. This strengthens the service evidence but
+  does not complete the Blueprint phase: the mobile-first offline diary client
+  and no-code QA/QC template-builder experience remain open.
 - **Phase 6** — the composite `(id, project_id)` foreign keys and cumulative
   material-issuance guard are now covered. A two-session PostgreSQL test proves
   the second issuer blocks on the receipt lock and only one competing 60-of-100

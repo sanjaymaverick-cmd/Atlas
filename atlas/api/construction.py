@@ -15,6 +15,10 @@ from atlas.api.construction_schemas import (
     InspectionCompletionRequest,
     InspectionCreateRequest,
     InspectionResponse,
+    MeetingActionCreateRequest,
+    MeetingActionResponse,
+    MeetingCreateRequest,
+    MeetingResponse,
     ProgressCreateRequest,
     ProgressResponse,
     ScheduleCreateRequest,
@@ -99,6 +103,72 @@ async def submit_diary(
         SiteDiaryResponse,
         await services.construction.submit_site_diary(
             session, actor_user_id=actor.user_id, data=body.to_dto(project_id)
+        ),
+    )
+
+
+@router.post(
+    "/projects/{project_id}/meetings",
+    response_model=MeetingResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_meeting(
+    project_id: UUID, body: MeetingCreateRequest, actor: Actor, session: Db, services: Services
+) -> BaseModel:
+    return response(
+        MeetingResponse,
+        await services.construction.create_meeting(
+            session, actor_user_id=actor.user_id, data=body.to_dto(project_id)
+        ),
+    )
+
+
+@router.post(
+    "/meetings/{meeting_id}/actions",
+    response_model=MeetingActionResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_meeting_action(
+    meeting_id: UUID,
+    body: MeetingActionCreateRequest,
+    actor: Actor,
+    session: Db,
+    services: Services,
+) -> BaseModel:
+    return response(
+        MeetingActionResponse,
+        await services.construction.create_meeting_action(
+            session,
+            actor_user_id=actor.user_id,
+            meeting_id=meeting_id,
+            data=body.to_dto(),
+        ),
+    )
+
+
+@router.post("/meeting-actions/{action_id}/transition", response_model=MeetingActionResponse)
+async def transition_meeting_action(
+    action_id: UUID, body: TransitionRequest, actor: Actor, session: Db, services: Services
+) -> BaseModel:
+    return response(
+        MeetingActionResponse,
+        await services.construction.transition_meeting_action(
+            session,
+            actor_user_id=actor.user_id,
+            action_id=action_id,
+            target_status=body.target_status,
+        ),
+    )
+
+
+@router.post("/meetings/{meeting_id}/close", response_model=MeetingResponse)
+async def close_meeting(
+    meeting_id: UUID, actor: Actor, session: Db, services: Services
+) -> BaseModel:
+    return response(
+        MeetingResponse,
+        await services.construction.close_meeting(
+            session, actor_user_id=actor.user_id, meeting_id=meeting_id
         ),
     )
 
@@ -304,6 +374,30 @@ async def archive_snag(snag_id: UUID, actor: Actor, session: Db, services: Servi
     )
 
 
+@router.post("/meetings/{meeting_id}/archive", response_model=MeetingResponse)
+async def archive_meeting(
+    meeting_id: UUID, actor: Actor, session: Db, services: Services
+) -> BaseModel:
+    return response(
+        MeetingResponse,
+        await services.construction.archive_meeting(
+            session, actor_user_id=actor.user_id, meeting_id=meeting_id
+        ),
+    )
+
+
+@router.post("/meeting-actions/{action_id}/archive", response_model=MeetingActionResponse)
+async def archive_meeting_action(
+    action_id: UUID, actor: Actor, session: Db, services: Services
+) -> BaseModel:
+    return response(
+        MeetingActionResponse,
+        await services.construction.archive_meeting_action(
+            session, actor_user_id=actor.user_id, action_id=action_id
+        ),
+    )
+
+
 # `response_model` takes a runtime value, but these schemas are created at
 # runtime by `response_model()` rather than declared as classes, so mypy cannot
 # read them as types — and `list[X]` is a type expression. Subscripting through
@@ -318,6 +412,8 @@ SiteDiaryListResponse = _list_of(SiteDiaryResponse)
 EhsListResponse = _list_of(EhsResponse)
 InspectionListResponse = _list_of(InspectionResponse)
 SnagListResponse = _list_of(SnagResponse)
+MeetingListResponse = _list_of(MeetingResponse)
+MeetingActionListResponse = _list_of(MeetingActionResponse)
 
 
 # -- reads ------------------------------------------------------------------
@@ -375,3 +471,23 @@ async def list_snags(
         session, actor_user_id=actor.user_id, project_id=project_id
     )
     return [response(SnagResponse, row) for row in rows]
+
+
+@router.get("/projects/{project_id}/meetings", response_model=MeetingListResponse)
+async def list_meetings(
+    project_id: UUID, actor: Actor, session: Db, services: Services
+) -> list[BaseModel]:
+    rows = await services.construction.list_meetings(
+        session, actor_user_id=actor.user_id, project_id=project_id
+    )
+    return [response(MeetingResponse, row) for row in rows]
+
+
+@router.get("/meetings/{meeting_id}/actions", response_model=MeetingActionListResponse)
+async def list_meeting_actions(
+    meeting_id: UUID, actor: Actor, session: Db, services: Services
+) -> list[BaseModel]:
+    rows = await services.construction.list_meeting_actions(
+        session, actor_user_id=actor.user_id, meeting_id=meeting_id
+    )
+    return [response(MeetingActionResponse, row) for row in rows]

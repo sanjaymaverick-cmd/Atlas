@@ -87,6 +87,46 @@ class ProgressSummary:
 
 
 @dataclass(frozen=True, slots=True)
+class MeetingCreate:
+    project_id: UUID
+    meeting_date: date
+    participant_user_ids: tuple[UUID, ...]
+    decisions: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class MeetingSummary:
+    id: UUID
+    project_id: UUID
+    meeting_date: date
+    participant_count: int
+    decision_count: int
+    status: str
+    version: int
+    archived_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class MeetingActionCreate:
+    description: str
+    responsible_user_id: UUID | None = None
+    due_date: date | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class MeetingActionSummary:
+    id: UUID
+    meeting_register_id: UUID
+    project_id: UUID
+    description: str
+    responsible_user_id: UUID | None
+    due_date: date | None
+    status: str
+    version: int
+    archived_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
 class EhsCreate:
     project_id: UUID
     incident_date: date

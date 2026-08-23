@@ -783,18 +783,33 @@ CREATE TABLE construction.meeting_registers (
   participants  JSONB,
   decisions     JSONB,
   status        TEXT NOT NULL DEFAULT 'recorded',
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by    UUID REFERENCES identity.users(id),
+  updated_by    UUID REFERENCES identity.users(id),
+  version       INTEGER NOT NULL DEFAULT 1,
+  archived_at   TIMESTAMPTZ,
+  CONSTRAINT ck_meeting_registers_status CHECK (status IN ('recorded','closed')),
+  CONSTRAINT uq_meeting_register_id_project UNIQUE (id, project_id)
 );
 
 CREATE TABLE construction.meeting_action_items (
   id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  meeting_register_id  UUID NOT NULL REFERENCES construction.meeting_registers(id),
+  meeting_register_id  UUID NOT NULL,
+  project_id           UUID NOT NULL REFERENCES organization.projects(id),
   description          TEXT NOT NULL,
   responsible_user_id  UUID REFERENCES identity.users(id),
   due_date             DATE,
   status               TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','done','overdue')),
   created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_by           UUID REFERENCES identity.users(id),
+  updated_by           UUID REFERENCES identity.users(id),
+  version              INTEGER NOT NULL DEFAULT 1,
+  archived_at          TIMESTAMPTZ,
+  CONSTRAINT fk_meeting_action_project
+    FOREIGN KEY (meeting_register_id, project_id)
+    REFERENCES construction.meeting_registers(id, project_id)
 );
 
 -- Change management (Blueprint §10 Change Workflow)
@@ -827,6 +842,10 @@ ALTER TABLE documents.document_versions
 
 CREATE INDEX idx_schedule_activities_project ON construction.schedule_activities(project_id);
 CREATE INDEX idx_site_diary_project_date ON construction.site_diary_entries(project_id, entry_date);
+CREATE INDEX idx_meeting_registers_project_date
+  ON construction.meeting_registers(project_id, meeting_date);
+CREATE INDEX idx_meeting_action_items_meeting_status
+  ON construction.meeting_action_items(meeting_register_id, status);
 
 -- =====================================================================
 -- SCHEMA: quality   (Blueprint §4.2, §5.2 RFI/NCR, §12 RFI/NCR Workflow)
