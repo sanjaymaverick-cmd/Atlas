@@ -42,6 +42,11 @@ from atlas.modules.construction.schemas import (
     TemplateCreate,
     TemplateSummary,
 )
+from atlas.modules.documents.contracts import (
+    DocumentNotAuthorisedError,
+    DocumentNotFoundError,
+    DocumentsContract,
+)
 from atlas.modules.identity.contracts import IdentityContract
 from atlas.platform.audit.writer import record_event
 
@@ -142,8 +147,11 @@ PERM_QUALITY_READ = "quality.read"
 
 
 class ConstructionService:
-    def __init__(self, identity: IdentityContract) -> None:
+    def __init__(
+        self, identity: IdentityContract, documents: DocumentsContract | None = None
+    ) -> None:
         self._identity = identity
+        self._documents = documents
 
     async def _require(
         self, session: AsyncSession, *, actor: UUID, permission: str, project_id: UUID | None
@@ -285,6 +293,37 @@ class ConstructionService:
             permission="construction.progress.create",
             project_id=activity.project_id,
         )
+        if data.evidence_document_id is not None:
+            if self._documents is None:
+                raise ConstructionConflictError(
+                    "progress requires verifiable controlled document evidence"
+                )
+            try:
+                document = await self._documents.get_document(
+                    session,
+                    actor_user_id=actor_user_id,
+                    document_id=data.evidence_document_id,
+                )
+                revisions = await self._documents.list_revisions(
+                    session,
+                    actor_user_id=actor_user_id,
+                    document_id=data.evidence_document_id,
+                )
+            except (DocumentNotFoundError, DocumentNotAuthorisedError) as exc:
+                raise ConstructionConflictError(
+                    "progress requires verifiable controlled document evidence"
+                ) from exc
+            if (
+                document.project_id != activity.project_id
+                or document.archived_at is not None
+                or not any(
+                    revision.status in {"virus_scanned", "under_review", "approved", "issued"}
+                    for revision in revisions
+                )
+            ):
+                raise ConstructionConflictError(
+                    "progress requires malware-cleared evidence from its project"
+                )
         latest = await session.scalar(
             select(ProgressUpdate)
             .where(

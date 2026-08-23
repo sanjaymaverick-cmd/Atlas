@@ -207,7 +207,7 @@ forbidden_modules =
 allow_indirect_imports = true
 
 [importlinter:contract:construction-independent]
-name = Construction depends only on Identity contracts and platform services
+name = Construction depends only on Identity and Documents contracts and platform services
 type = forbidden
 source_modules =
     atlas.modules.construction

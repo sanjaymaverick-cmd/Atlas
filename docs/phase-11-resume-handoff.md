@@ -85,6 +85,13 @@ Updated: 2026-08-23 (Asia/Calcutta)
   audit commit, and explicit rollback. Post-change verification passed 368
   tests against real PostgreSQL with zero skips, Ruff, strict mypy over 157
   files, all 25 import contracts, Bandit, pip-audit, and the sole Alembic head.
+- Phase 5 progress evidence now validates through the published Documents
+  contract. It must be same-project, unarchived, and have a
+  malware-cleared-or-later revision; cross-project, draft, quarantined,
+  archived, missing/unauthorised, and unconfigured validation paths fail
+  closed. Post-change verification passed 374 tests against real PostgreSQL
+  with zero skips, Ruff, strict mypy over 157 files, all 25 import contracts,
+  Bandit, pip-audit, and the sole Alembic head.
 - Phase 11 remains blocked at the owner-only Blueprint section 25 AI-hosting
   decision. Do not select or implement an inference provider autonomously.
 - Before any staging operation, inspect ignored and untracked files as well as

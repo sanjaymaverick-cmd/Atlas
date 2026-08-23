@@ -390,6 +390,12 @@ instance. None was introduced by Phase 11; all predate it.
   use restricted Documents records. Raw binaries, public URLs, GPS metadata,
   biometric data, and personal identifiers must not be embedded in JSON fields,
   logs, fixtures, or audit payloads.
+  Provisional progress-evidence rule implemented 2026-08-23: the evidence must
+  be an unarchived Documents record in the activity's project with at least one
+  revision in `virus_scanned`, `under_review`, `approved`, or `issued`; draft,
+  quarantined, cross-project, archived, missing, unauthorised, and unconfigured
+  validation fail closed. Confirm whether `virus_scanned` alone is sufficient
+  for submitted progress, or whether reviewer approval must be mandatory.
 - [ ] Review provisional progress invariants: percentage is 0–100, one update
   per activity/date, schedule dates cannot run backwards, and progress evidence
   remains immutable after submission.

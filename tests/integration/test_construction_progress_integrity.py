@@ -17,6 +17,7 @@ from sqlalchemy.pool import NullPool
 from atlas.modules.construction.contracts import ConstructionConflictError
 from atlas.modules.construction.schemas import ProgressCreate
 from atlas.modules.construction.service import ConstructionService
+from atlas.modules.documents.service import DocumentsService
 from atlas.platform.audit.chain import AuditRecord, verify_chain
 
 pytestmark = [pytest.mark.integration]
@@ -68,7 +69,7 @@ async def session_factory(database_url: str, db: Any) -> Any:
     await engine.dispose()
 
 
-async def _seed_activity(session: AsyncSession) -> tuple[UUID, UUID]:
+async def _seed_activity(session: AsyncSession) -> tuple[UUID, UUID, UUID]:
     actor_id, group_id, entity_id, project_id, activity_id = (
         uuid4(),
         uuid4(),
@@ -116,7 +117,42 @@ async def _seed_activity(session: AsyncSession) -> tuple[UUID, UUID]:
         {"id": activity_id, "project_id": project_id, "actor_id": actor_id},
     )
     await session.commit()
-    return actor_id, activity_id
+    return actor_id, project_id, activity_id
+
+
+async def _seed_evidence(
+    session: AsyncSession,
+    *,
+    project_id: UUID,
+    revision_status: str,
+    archived: bool = False,
+) -> UUID:
+    document_id, revision_id = uuid4(), uuid4()
+    await session.execute(
+        text(
+            "INSERT INTO documents.documents "
+            "(id, project_id, document_type, classification, status, version, archived_at) "
+            "VALUES (:id, :project_id, 'progress_evidence', 'restricted', "
+            "'uploaded', 1, CASE WHEN :archived THEN now() ELSE NULL END)"
+        ),
+        {"id": document_id, "project_id": project_id, "archived": archived},
+    )
+    await session.execute(
+        text(
+            "INSERT INTO documents.document_versions "
+            "(id, document_id, revision_code, object_storage_key, checksum_sha256, status) "
+            "VALUES (:id, :document_id, 'SYN-R1', :storage_key, :checksum, :status)"
+        ),
+        {
+            "id": revision_id,
+            "document_id": document_id,
+            "storage_key": f"synthetic/progress/{revision_id}",
+            "checksum": "a" * 64,
+            "status": revision_status,
+        },
+    )
+    await session.commit()
+    return document_id
 
 
 async def _audit_chain(session: AsyncSession) -> list[AuditRecord]:
@@ -141,12 +177,19 @@ async def _add_progress(
     progress_date: date,
     percent: Decimal,
     notes: str = "SYNTHETIC PRIVATE PROGRESS NOTES",
+    evidence_document_id: UUID | None = None,
+    documents: DocumentsService | None = None,
 ) -> None:
-    await ConstructionService(identity).add_progress(
+    await ConstructionService(identity, documents).add_progress(
         session,
         actor_user_id=actor_id,
         activity_id=activity_id,
-        data=ProgressCreate(progress_date=progress_date, percent_complete=percent, notes=notes),
+        data=ProgressCreate(
+            progress_date=progress_date,
+            percent_complete=percent,
+            notes=notes,
+            evidence_document_id=evidence_document_id,
+        ),
     )
 
 
@@ -154,7 +197,7 @@ async def test_progress_is_chronological_monotonic_and_audited_minimally(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with session_factory() as session:
-        actor_id, activity_id = await _seed_activity(session)
+        actor_id, _, activity_id = await _seed_activity(session)
         await _add_progress(
             session,
             AllowAllIdentity(),
@@ -199,7 +242,7 @@ async def test_progress_rollback_removes_update_and_audit(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with session_factory() as session:
-        actor_id, activity_id = await _seed_activity(session)
+        actor_id, _, activity_id = await _seed_activity(session)
         await _add_progress(
             session,
             AllowAllIdentity(),
@@ -224,7 +267,7 @@ async def test_concurrent_progress_writers_serialize_on_activity(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with session_factory() as seed:
-        actor_id, activity_id = await _seed_activity(seed)
+        actor_id, _, activity_id = await _seed_activity(seed)
     identity = ActivityLockProbeIdentity()
 
     async def write(progress_date: date, percent: Decimal) -> str:
@@ -265,3 +308,99 @@ async def test_concurrent_progress_writers_serialize_on_activity(
         ).all()
         assert rows == [(date(2026, 8, 23), Decimal("80.00"))]
         assert len(await _audit_chain(session)) == 1
+
+
+@pytest.mark.parametrize(
+    ("same_project", "revision_status", "archived"),
+    [
+        (False, "virus_scanned", False),
+        (True, "draft", False),
+        (True, "quarantined", False),
+        (True, "approved", True),
+    ],
+)
+async def test_progress_refuses_uncontrolled_document_evidence(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    same_project: bool,
+    revision_status: str,
+    archived: bool,
+) -> None:
+    async with session_factory() as session:
+        actor_id, project_id, activity_id = await _seed_activity(session)
+        evidence_project_id = project_id
+        if not same_project:
+            _, evidence_project_id, _ = await _seed_activity(session)
+        document_id = await _seed_evidence(
+            session,
+            project_id=evidence_project_id,
+            revision_status=revision_status,
+            archived=archived,
+        )
+        identity = AllowAllIdentity()
+
+        with pytest.raises(ConstructionConflictError, match="evidence"):
+            await _add_progress(
+                session,
+                identity,
+                actor_id=actor_id,
+                activity_id=activity_id,
+                progress_date=date(2026, 8, 23),
+                percent=Decimal("25"),
+                evidence_document_id=document_id,
+                documents=DocumentsService(identity),
+            )
+        await session.rollback()
+        assert await _audit_chain(session) == []
+
+
+async def test_progress_commits_malware_cleared_project_evidence(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        actor_id, project_id, activity_id = await _seed_activity(session)
+        document_id = await _seed_evidence(
+            session, project_id=project_id, revision_status="virus_scanned"
+        )
+        identity = AllowAllIdentity()
+        await _add_progress(
+            session,
+            identity,
+            actor_id=actor_id,
+            activity_id=activity_id,
+            progress_date=date(2026, 8, 23),
+            percent=Decimal("25"),
+            evidence_document_id=document_id,
+            documents=DocumentsService(identity),
+        )
+        await session.commit()
+
+        stored_document_id = await session.scalar(
+            text(
+                "SELECT evidence_document_id FROM construction.progress_updates "
+                "WHERE schedule_activity_id = :activity_id"
+            ),
+            {"activity_id": activity_id},
+        )
+        assert stored_document_id == document_id
+        chain = await _audit_chain(session)
+        assert len(chain) == 1 and verify_chain(chain) == 1
+
+
+async def test_progress_evidence_fails_closed_without_documents_contract(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        actor_id, _, activity_id = await _seed_activity(session)
+        with pytest.raises(ConstructionConflictError, match="verifiable controlled"):
+            await _add_progress(
+                session,
+                AllowAllIdentity(),
+                actor_id=actor_id,
+                activity_id=activity_id,
+                progress_date=date(2026, 8, 23),
+                percent=Decimal("25"),
+                evidence_document_id=uuid4(),
+            )
+        await session.rollback()
+        assert await _audit_chain(session) == []

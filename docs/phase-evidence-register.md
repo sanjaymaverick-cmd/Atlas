@@ -10,7 +10,7 @@ and an explicit rollback is proved to remove both the parcel and its audit
 event. This closes that invariant for Phase 3 only; it does not imply the same
 coverage for Phases 4-10.
 
-The latest post-change full suite passed with **368 tests and zero skips**
+The latest post-change full suite passed with **374 tests and zero skips**
 against the real disposable PostgreSQL 16 database. This count includes newer
 authenticated read/UI and phase-specific service coverage added after the
 original 2026-08-18 count below.
@@ -157,7 +157,10 @@ rest are still open, and they are the ones that matter for a sign-off.
   now lock the activity row and accept only strictly later, non-decreasing
   updates. PostgreSQL tests prove chronological/percentage refusal, serialized
   concurrent writers, minimized audit commit, and explicit rollback. Controlled
-  Documents validation for progress evidence remains open.
+  progress evidence now uses the published Documents contract and requires a
+  same-project, unarchived document with a malware-cleared-or-later revision;
+  cross-project, draft, quarantined, archived, and unconfigured validation paths
+  fail closed. Inspection and snag evidence validation remains open.
 - **Phase 6** — the composite `(id, project_id)` foreign keys and cumulative
   material-issuance guard are now covered. A two-session PostgreSQL test proves
   the second issuer blocks on the receipt lock and only one competing 60-of-100
