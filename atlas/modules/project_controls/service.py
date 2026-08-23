@@ -11,6 +11,11 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from atlas.modules.documents.contracts import (
+    DocumentNotAuthorisedError,
+    DocumentNotFoundError,
+    DocumentsContract,
+)
 from atlas.modules.identity.contracts import IdentityContract
 from atlas.modules.project_controls.contracts import (
     ProjectControlsConflictError,
@@ -116,8 +121,11 @@ PERM_READ = "project_controls.read"
 
 
 class ProjectControlsService:
-    def __init__(self, identity: IdentityContract) -> None:
+    def __init__(
+        self, identity: IdentityContract, documents: DocumentsContract | None = None
+    ) -> None:
         self._identity = identity
+        self._documents = documents
 
     async def _require(
         self, s: AsyncSession, actor: UUID, permission: str, project: UUID | None
@@ -151,10 +159,54 @@ class ProjectControlsService:
             after_state=after,
         )
 
+    async def _require_controlled_document(
+        self,
+        s: AsyncSession,
+        *,
+        actor_user_id: UUID,
+        project_id: UUID,
+        document_id: UUID,
+        accepted_revision_statuses: frozenset[str],
+        purpose: str,
+    ) -> None:
+        if self._documents is None:
+            raise ProjectControlsConflictError(
+                f"{purpose} requires verifiable controlled document evidence"
+            )
+        try:
+            document = await self._documents.get_document(
+                s, actor_user_id=actor_user_id, document_id=document_id
+            )
+            revisions = await self._documents.list_revisions(
+                s, actor_user_id=actor_user_id, document_id=document_id
+            )
+        except (DocumentNotFoundError, DocumentNotAuthorisedError) as exc:
+            raise ProjectControlsConflictError(
+                f"{purpose} requires verifiable controlled document evidence"
+            ) from exc
+        if (
+            document.project_id != project_id
+            or document.archived_at is not None
+            or not any(revision.status in accepted_revision_statuses for revision in revisions)
+        ):
+            raise ProjectControlsConflictError(
+                f"{purpose} requires controlled evidence from its project"
+            )
+
     async def register_bim_import(
         self, s: AsyncSession, *, actor_user_id: UUID, data: BimImportCreate
     ) -> BimImportSummary:
         await self._require(s, actor_user_id, "design.bim.create", data.project_id)
+        await self._require_controlled_document(
+            s,
+            actor_user_id=actor_user_id,
+            project_id=data.project_id,
+            document_id=data.source_document_id,
+            accepted_revision_statuses=frozenset(
+                {"virus_scanned", "under_review", "approved", "issued"}
+            ),
+            purpose="BIM import",
+        )
         now = datetime.now(UTC)
         row = BimImport(
             id=uuid4(),
@@ -449,6 +501,15 @@ class ProjectControlsService:
             raise ProjectControlsConflictError(
                 "rejected deliveries require a zero-stock rejection workflow"
             )
+        if data.certificate_document_id is not None:
+            await self._require_controlled_document(
+                s,
+                actor_user_id=actor_user_id,
+                project_id=data.project_id,
+                document_id=data.certificate_document_id,
+                accepted_revision_statuses=frozenset({"approved", "issued"}),
+                purpose="material receipt certificate",
+            )
         now = datetime.now(UTC)
         row = MaterialReceipt(
             id=uuid4(),
@@ -501,6 +562,15 @@ class ProjectControlsService:
         await self._require(s, actor_user_id, "inventory.issuance.create", receipt.project_id)
         if data.quantity_issued <= 0 or receipt.status not in {"received", "partial"}:
             raise ProjectControlsConflictError("material cannot be issued from this receipt")
+        if data.evidence_document_id is not None:
+            await self._require_controlled_document(
+                s,
+                actor_user_id=actor_user_id,
+                project_id=receipt.project_id,
+                document_id=data.evidence_document_id,
+                accepted_revision_statuses=frozenset({"approved", "issued"}),
+                purpose="material issuance",
+            )
         issued = await s.scalar(
             select(func.coalesce(func.sum(MaterialIssuance.quantity_issued), 0)).where(
                 MaterialIssuance.material_receipt_id == receipt_id,

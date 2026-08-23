@@ -513,6 +513,13 @@ instance. None was introduced by Phase 11; all predate it.
 - [ ] Classify supplier batch/lot references, test certificates, recipient/site
   allocation notes, and issuance evidence; set minimization, access, retention,
   export, and legal-hold rules. Evidence must be restricted Documents records.
+  Provisional enforcement added 2026-08-24: BIM imports require a same-project,
+  unarchived document with a malware-cleared-or-later revision; material receipt
+  certificates and issuance evidence require a same-project, unarchived document
+  with an approved or issued revision. Missing/unavailable Documents integration
+  fails closed before mutation. Confirm the accepted revision states, document
+  types/classifications, approval authority, certificate expiry/revocation, and
+  whether issuance evidence is mandatory by material/category or threshold.
 - [ ] Approve stock reservation and concurrency policy. Issuance must lock the
   source receipt and reject cumulative quantities above the accepted receipt;
   decide whether rejected/partial receipts, returns, transfers, wastage, and

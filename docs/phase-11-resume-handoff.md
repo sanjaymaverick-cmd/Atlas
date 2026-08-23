@@ -163,6 +163,15 @@ Updated: 2026-08-23 (Asia/Calcutta)
   mypy over 157 files, and all 25 import contracts. Production security,
   retention, remote-wipe, device-binding, and template-governance decisions
   remain explicit owner-review items in `docs/production-readiness-todo.md`.
+- Phase 6 controlled-document integrity now resolves BIM sources, material
+  receipt certificates, and issuance evidence through the published Documents
+  contract before mutation. The service refuses wrong-project, archived, or
+  insufficient-revision evidence and fails closed when document verification
+  is unavailable. Ten PostgreSQL tests cover refusal without state/audit,
+  accepted malware-cleared BIM evidence, accepted approved/issued inventory
+  evidence, valid hash-chain events, and exclusion of batch/recipient narrative
+  from audit payloads. The accepted evidence-state policy remains provisional
+  and is recorded for owner review.
 - Phase 11 remains blocked at the owner-only Blueprint section 25 AI-hosting
   decision. Do not select or implement an inference provider autonomously.
 - Before any staging operation, inspect ignored and untracked files as well as

@@ -202,9 +202,12 @@ as skipped—not passed—when it is absent.
 Phase 6 operations cover document-backed BIM imports, project CostCode WBS,
 quantity verification/approval, material masters, receipts, and receipt-linked
 issuances under `/api/v1`. BIM callers provide a restricted Documents UUID—not
-a path or URL. Material issuance is serialized against its receipt and rejects
-cumulative quantities above accepted stock. Formal discrepancy/change handling
-remains in Phase 7.
+a path or URL—and the service verifies same-project, unarchived,
+malware-cleared evidence through the published Documents contract. Receipt
+certificates and issuance evidence require approved or issued same-project
+document revisions. Material issuance is serialized against its receipt and
+rejects cumulative quantities above accepted stock. Formal discrepancy/change
+handling remains in Phase 7.
 
 Phase 7 operations cover change requests, RFIs, NCRs, and quantity discrepancy
 cases under `/api/v1`. The workflows enforce ordered transitions, controlled

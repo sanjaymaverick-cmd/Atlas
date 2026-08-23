@@ -206,8 +206,13 @@ rest are still open, and they are the ones that matter for a sign-off.
   material-issuance guard are now covered. A two-session PostgreSQL test proves
   the second issuer blocks on the receipt lock and only one competing 60-of-100
   issuance succeeds; sequential overdraw and valid audit commit are covered.
-  Returns, transfers, wastage, unit conversion, and broader lifecycle evidence
-  remain open policy/workflow work.
+  BIM sources, receipt certificates, and issuance evidence are now resolved
+  through the published Documents contract before mutation. Ten PostgreSQL
+  cases prove cross-project, draft, and archived evidence is refused unchanged;
+  malware-cleared BIM and approved/issued certificate or issuance evidence
+  commit atomically with a valid privacy-minimized audit event. Returns,
+  transfers, wastage, unit conversion, and broader lifecycle evidence remain
+  open policy/workflow work.
 - **Phase 8** — active-unit double booking, installment-total over-allocation,
   and collection-to-installment over-allocation are now covered against
   PostgreSQL. Concurrent installment additions are serialized on the payment

@@ -108,7 +108,7 @@ def create_app(
     project_controls = (
         project_controls_service
         if project_controls_service is not None
-        else ProjectControlsService(identity)
+        else ProjectControlsService(identity, documents)
     )
     change_control = (
         change_control_service
