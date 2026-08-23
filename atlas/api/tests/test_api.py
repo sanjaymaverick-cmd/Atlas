@@ -221,6 +221,17 @@ class FakeOrganization:
     ) -> bool:
         return True
 
+    async def location_belongs_to_project(
+        self,
+        session: object,
+        *,
+        project_id: UUID,
+        building_id: UUID | None,
+        floor_id: UUID | None,
+        unit_id: UUID | None,
+    ) -> bool:
+        return True
+
     async def get_project(
         self, session: object, *, actor_user_id: UUID, project_id: UUID
     ) -> ProjectSummary:

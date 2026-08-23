@@ -393,6 +393,13 @@ instance. None was introduced by Phase 11; all predate it.
   rollback removes both the transition and audit event. Confirm who may retire
   templates, complete activities, rectify/verify/close snags, and which actions
   require independent approval or fresh step-up.
+  Provisional scope rule implemented 2026-08-23: project-specific templates,
+  predecessor activities, linked diaries/inspections/progress, and all supplied
+  building/floor/unit coordinates must belong to the target project; global
+  templates remain allowed. PostgreSQL composite foreign keys protect links
+  that carry both project IDs, while the published Organization contract checks
+  inherited location scope and hierarchy consistency. Confirm whether global
+  templates should remain enabled and who may publish or retire them.
 - [ ] Site photos, certificates, inspection reports, and progress evidence must
   use restricted Documents records. Raw binaries, public URLs, GPS metadata,
   biometric data, and personal identifiers must not be embedded in JSON fields,

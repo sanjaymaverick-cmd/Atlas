@@ -139,3 +139,19 @@ enforce `sealed -> invoked -> revoked` and never allow a return to `sealed`.
 - The `set_updated_at()` auto-attach `DO` block wires every table with an
   `updated_at` column (the "does not exist, skipping" notices are the expected
   `DROP TRIGGER IF EXISTS` no-ops on first run).
+## 6. Phase 5 project-scope hardening (2026-08-23)
+
+Four Phase 5 references originally used single-column foreign keys even though
+both rows carried a `project_id`: activity predecessor, EHS site diary,
+progress activity, and snag inspection. A direct database writer could attach
+each child to a parent in another project. Migration
+`0013_phase5_scope_integrity` replaces those links with composite foreign keys;
+`db/schema.sql` remains equivalent to the migration chain.
+
+Inspection templates intentionally support `project_id = NULL` as a global
+template, so their scope rule remains in the Construction service: global or
+same-project and unarchived. Buildings own project scope while floors and units
+inherit it through their hierarchy. The published Organization contract now
+validates any supplied building/floor/unit combination belongs to one project
+and is internally consistent; Construction does not query Organization
+internals.

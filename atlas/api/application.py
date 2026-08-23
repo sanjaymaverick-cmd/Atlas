@@ -103,7 +103,7 @@ def create_app(
     construction = (
         construction_service
         if construction_service is not None
-        else ConstructionService(identity, documents)
+        else ConstructionService(identity, documents, organization)
     )
     project_controls = (
         project_controls_service

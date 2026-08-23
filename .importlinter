@@ -63,6 +63,7 @@ name = Organization internals are private to the organization module
 type = forbidden
 source_modules =
     atlas.modules.identity
+    atlas.modules.construction
     atlas.modules.audit
     atlas.owner_console
 forbidden_modules =
@@ -207,12 +208,14 @@ forbidden_modules =
 allow_indirect_imports = true
 
 [importlinter:contract:construction-independent]
-name = Construction depends only on Identity and Documents contracts and platform services
+name = Construction uses only published Identity, Organization, and Documents contracts
 type = forbidden
 source_modules =
     atlas.modules.construction
 forbidden_modules =
-    atlas.modules.organization
+    atlas.modules.organization.models
+    atlas.modules.organization.repository
+    atlas.modules.organization.service
     atlas.modules.audit
     atlas.modules.documents.models
     atlas.modules.documents.service

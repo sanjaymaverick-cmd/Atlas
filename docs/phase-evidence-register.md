@@ -10,7 +10,7 @@ and an explicit rollback is proved to remove both the parcel and its audit
 event. This closes that invariant for Phase 3 only; it does not imply the same
 coverage for Phases 4-10.
 
-The latest post-change full suite passed with **390 tests and zero skips**
+The latest post-change full suite passed with **398 tests and zero skips**
 against the real disposable PostgreSQL 16 database. This count includes newer
 authenticated read/UI and phase-specific service coverage added after the
 original 2026-08-18 count below.
@@ -168,7 +168,12 @@ rest are still open, and they are the ones that matter for a sign-off.
   payloads. Activity, inspection-template, and snag transitions now lock their
   rows before evaluating the state machine. Parameterized PostgreSQL tests
   prove incompatible concurrent transitions produce one winner and that each
-  lifecycle's state/version and audit event roll back together.
+  lifecycle's state/version and audit event roll back together. Composite
+  PostgreSQL foreign keys now reject cross-project activity predecessors, EHS
+  diaries, progress activities, and snag inspections. Service tests additionally
+  reject cross-project/archived templates and inconsistent building-floor-unit
+  hierarchies through the published Organization contract while preserving
+  global templates. Empty-database migration equivalence covers the new DDL.
 - **Phase 6** — the composite `(id, project_id)` foreign keys and cumulative
   material-issuance guard are now covered. A two-session PostgreSQL test proves
   the second issuer blocks on the receipt lock and only one competing 60-of-100

@@ -65,3 +65,13 @@ class OrganizationContract(Protocol):
     async def unit_belongs_to_project(
         self, session: AsyncSession, *, unit_id: UUID, project_id: UUID
     ) -> bool: ...
+
+    async def location_belongs_to_project(
+        self,
+        session: AsyncSession,
+        *,
+        project_id: UUID,
+        building_id: UUID | None,
+        floor_id: UUID | None,
+        unit_id: UUID | None,
+    ) -> bool: ...

@@ -95,6 +95,51 @@ class OrganizationService:
         )
         return bool(value)
 
+    async def location_belongs_to_project(
+        self,
+        session: AsyncSession,
+        *,
+        project_id: UUID,
+        building_id: UUID | None,
+        floor_id: UUID | None,
+        unit_id: UUID | None,
+    ) -> bool:
+        if building_id is None and floor_id is None and unit_id is None:
+            return True
+        value = await session.scalar(
+            text(
+                """SELECT
+                (CAST(:building_id AS UUID) IS NULL OR EXISTS (
+                    SELECT 1 FROM organization.buildings b
+                    WHERE b.id = CAST(:building_id AS UUID) AND b.project_id = :project_id
+                ))
+                AND (CAST(:floor_id AS UUID) IS NULL OR EXISTS (
+                    SELECT 1 FROM organization.floors f
+                    JOIN organization.buildings b ON b.id = f.building_id
+                    WHERE f.id = CAST(:floor_id AS UUID) AND b.project_id = :project_id
+                      AND (CAST(:building_id AS UUID) IS NULL
+                           OR f.building_id = CAST(:building_id AS UUID))
+                ))
+                AND (CAST(:unit_id AS UUID) IS NULL OR EXISTS (
+                    SELECT 1 FROM organization.units u
+                    JOIN organization.floors f ON f.id = u.floor_id
+                    JOIN organization.buildings b ON b.id = f.building_id
+                    WHERE u.id = CAST(:unit_id AS UUID) AND b.project_id = :project_id
+                      AND (CAST(:floor_id AS UUID) IS NULL
+                           OR u.floor_id = CAST(:floor_id AS UUID))
+                      AND (CAST(:building_id AS UUID) IS NULL
+                           OR f.building_id = CAST(:building_id AS UUID))
+                ))"""
+            ),
+            {
+                "project_id": project_id,
+                "building_id": building_id,
+                "floor_id": floor_id,
+                "unit_id": unit_id,
+            },
+        )
+        return bool(value)
+
     # -- authorisation ----------------------------------------------------
 
     async def _require(

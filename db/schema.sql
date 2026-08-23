@@ -712,7 +712,7 @@ CREATE TABLE construction.schedule_activities (
   planned_end            DATE,
   actual_start           DATE,
   actual_end             DATE,
-  predecessor_activity_id UUID REFERENCES construction.schedule_activities(id),
+  predecessor_activity_id UUID,
   status                 TEXT NOT NULL DEFAULT 'not_started'
     CHECK (status IN ('not_started','in_progress','delayed','completed')),
   created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -723,7 +723,10 @@ CREATE TABLE construction.schedule_activities (
   archived_at            TIMESTAMPTZ,
   CHECK (planned_end IS NULL OR planned_start IS NULL OR planned_end >= planned_start),
   CHECK (actual_end IS NULL OR actual_start IS NULL OR actual_end >= actual_start),
-  UNIQUE (id, project_id)
+  UNIQUE (id, project_id),
+  CONSTRAINT fk_schedule_predecessor_project
+    FOREIGN KEY (predecessor_activity_id, project_id)
+    REFERENCES construction.schedule_activities(id, project_id)
 );
 
 CREATE TABLE construction.site_diary_entries (
@@ -749,13 +752,14 @@ CREATE TABLE construction.site_diary_entries (
   version                  INTEGER NOT NULL DEFAULT 1,
   archived_at              TIMESTAMPTZ,
   UNIQUE (project_id, entry_date),
-  UNIQUE (project_id, client_record_id)
+  UNIQUE (project_id, client_record_id),
+  CONSTRAINT uq_site_diary_id_project UNIQUE (id, project_id)
 );
 
 CREATE TABLE construction.ehs_incidents (
   id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id          UUID NOT NULL REFERENCES organization.projects(id),
-  site_diary_entry_id UUID REFERENCES construction.site_diary_entries(id),
+  site_diary_entry_id UUID,
   incident_date       DATE NOT NULL,
   severity            TEXT NOT NULL CHECK (severity IN ('near_miss','minor','major','fatality')),
   description         TEXT,
@@ -766,7 +770,10 @@ CREATE TABLE construction.ehs_incidents (
   created_by          UUID REFERENCES identity.users(id),
   updated_by          UUID REFERENCES identity.users(id),
   version             INTEGER NOT NULL DEFAULT 1,
-  archived_at         TIMESTAMPTZ
+  archived_at         TIMESTAMPTZ,
+  CONSTRAINT fk_ehs_diary_project
+    FOREIGN KEY (site_diary_entry_id, project_id)
+    REFERENCES construction.site_diary_entries(id, project_id)
 );
 
 CREATE TABLE construction.meeting_registers (
@@ -867,7 +874,7 @@ CREATE TABLE quality.inspections (
 CREATE TABLE construction.progress_updates (
   id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id            UUID NOT NULL REFERENCES organization.projects(id),
-  schedule_activity_id  UUID NOT NULL REFERENCES construction.schedule_activities(id),
+  schedule_activity_id  UUID NOT NULL,
   progress_date         DATE NOT NULL,
   percent_complete      NUMERIC(5,2) NOT NULL CHECK (percent_complete BETWEEN 0 AND 100),
   notes                 TEXT,
@@ -878,7 +885,10 @@ CREATE TABLE construction.progress_updates (
   updated_by            UUID REFERENCES identity.users(id),
   version               INTEGER NOT NULL DEFAULT 1,
   archived_at           TIMESTAMPTZ,
-  UNIQUE (schedule_activity_id, progress_date)
+  UNIQUE (schedule_activity_id, progress_date),
+  CONSTRAINT fk_progress_activity_project
+    FOREIGN KEY (schedule_activity_id, project_id)
+    REFERENCES construction.schedule_activities(id, project_id)
 );
 
 CREATE TABLE quality.inspection_evidence (
@@ -895,7 +905,7 @@ CREATE TABLE quality.inspection_evidence (
 CREATE TABLE quality.snag_items (
   id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id            UUID NOT NULL REFERENCES organization.projects(id),
-  inspection_id         UUID REFERENCES quality.inspections(id),
+  inspection_id         UUID,
   building_id           UUID REFERENCES organization.buildings(id),
   floor_id              UUID REFERENCES organization.floors(id),
   unit_id               UUID REFERENCES organization.units(id),
@@ -912,7 +922,10 @@ CREATE TABLE quality.snag_items (
   created_by            UUID REFERENCES identity.users(id),
   updated_by            UUID REFERENCES identity.users(id),
   version               INTEGER NOT NULL DEFAULT 1,
-  archived_at           TIMESTAMPTZ
+  archived_at           TIMESTAMPTZ,
+  CONSTRAINT fk_snag_inspection_project
+    FOREIGN KEY (inspection_id, project_id)
+    REFERENCES quality.inspections(id, project_id)
 );
 
 -- RFI: promoted to a first-class object per audit finding (was folded into discrepancy case in v1).

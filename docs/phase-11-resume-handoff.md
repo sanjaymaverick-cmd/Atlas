@@ -106,6 +106,14 @@ Updated: 2026-08-23 (Asia/Calcutta)
   version, and audit event for every lifecycle. Post-change verification passed
   390 tests against real PostgreSQL with zero skips, Ruff, strict mypy over 157
   files, all 25 import contracts, Bandit, pip-audit, and the sole Alembic head.
+- Phase 5 project scope is now enforced for predecessor activities, linked EHS
+  diaries, progress activities, and snag inspections by composite PostgreSQL
+  foreign keys in canonical DDL and migration `0013_phase5_scope_integrity`.
+  Published-contract service checks cover global/same-project templates and the
+  building-floor-unit hierarchy. Post-change verification passed 398 tests
+  against real PostgreSQL with zero skips, empty-database migration equivalence,
+  Ruff, strict mypy over 157 files, all 25 import contracts, Bandit, pip-audit,
+  and sole Alembic head `0013_phase5_scope_integrity`.
 - Phase 11 remains blocked at the owner-only Blueprint section 25 AI-hosting
   decision. Do not select or implement an inference provider autonomously.
 - Before any staging operation, inspect ignored and untracked files as well as

@@ -48,6 +48,7 @@ from atlas.modules.documents.contracts import (
     DocumentsContract,
 )
 from atlas.modules.identity.contracts import IdentityContract
+from atlas.modules.organization.contracts import OrganizationContract
 from atlas.platform.audit.writer import record_event
 
 ACTIVITY_TRANSITIONS = {
@@ -148,10 +149,14 @@ PERM_QUALITY_READ = "quality.read"
 
 class ConstructionService:
     def __init__(
-        self, identity: IdentityContract, documents: DocumentsContract | None = None
+        self,
+        identity: IdentityContract,
+        documents: DocumentsContract | None = None,
+        organization: OrganizationContract | None = None,
     ) -> None:
         self._identity = identity
         self._documents = documents
+        self._organization = organization
 
     async def _require(
         self, session: AsyncSession, *, actor: UUID, permission: str, project_id: UUID | None
@@ -240,6 +245,18 @@ class ConstructionService:
             permission="construction.schedule.create",
             project_id=data.project_id,
         )
+        if data.predecessor_activity_id is not None:
+            predecessor = await session.scalar(
+                select(ScheduleActivity.id).where(
+                    ScheduleActivity.id == data.predecessor_activity_id,
+                    ScheduleActivity.project_id == data.project_id,
+                    ScheduleActivity.archived_at.is_(None),
+                )
+            )
+            if predecessor is None:
+                raise ConstructionConflictError(
+                    "predecessor activity must be active in the same project"
+                )
         now = datetime.now(UTC)
         row = ScheduleActivity(
             id=uuid4(),
@@ -499,6 +516,18 @@ class ConstructionService:
             permission="construction.ehs.create",
             project_id=data.project_id,
         )
+        if data.site_diary_entry_id is not None:
+            diary = await session.scalar(
+                select(SiteDiaryEntry.id).where(
+                    SiteDiaryEntry.id == data.site_diary_entry_id,
+                    SiteDiaryEntry.project_id == data.project_id,
+                    SiteDiaryEntry.archived_at.is_(None),
+                )
+            )
+            if diary is None:
+                raise ConstructionConflictError(
+                    "EHS incident diary must be active in the same project"
+                )
         now = datetime.now(UTC)
         row = EhsIncident(
             id=uuid4(),
@@ -694,6 +723,30 @@ class ConstructionService:
             permission="quality.inspection.create",
             project_id=data.project_id,
         )
+        if data.template_id is not None:
+            template = await session.get(InspectionTemplate, data.template_id)
+            if (
+                template is None
+                or template.archived_at is not None
+                or (template.project_id is not None and template.project_id != data.project_id)
+            ):
+                raise ConstructionConflictError(
+                    "inspection template must be global or active in the same project"
+                )
+        if any(value is not None for value in (data.building_id, data.floor_id, data.unit_id)):
+            if (
+                self._organization is None
+                or not await self._organization.location_belongs_to_project(
+                    session,
+                    project_id=data.project_id,
+                    building_id=data.building_id,
+                    floor_id=data.floor_id,
+                    unit_id=data.unit_id,
+                )
+            ):
+                raise ConstructionConflictError(
+                    "inspection location must form a hierarchy in the same project"
+                )
         now = datetime.now(UTC)
         row = Inspection(
             id=uuid4(),
@@ -816,6 +869,32 @@ class ConstructionService:
             permission="quality.snag.create",
             project_id=data.project_id,
         )
+        if data.inspection_id is not None:
+            inspection = await session.scalar(
+                select(Inspection.id).where(
+                    Inspection.id == data.inspection_id,
+                    Inspection.project_id == data.project_id,
+                    Inspection.archived_at.is_(None),
+                )
+            )
+            if inspection is None:
+                raise ConstructionConflictError(
+                    "snag inspection must be active in the same project"
+                )
+        if any(value is not None for value in (data.building_id, data.floor_id, data.unit_id)):
+            if (
+                self._organization is None
+                or not await self._organization.location_belongs_to_project(
+                    session,
+                    project_id=data.project_id,
+                    building_id=data.building_id,
+                    floor_id=data.floor_id,
+                    unit_id=data.unit_id,
+                )
+            ):
+                raise ConstructionConflictError(
+                    "snag location must form a hierarchy in the same project"
+                )
         if data.evidence_document_id is not None:
             await self._require_controlled_evidence(
                 session,
