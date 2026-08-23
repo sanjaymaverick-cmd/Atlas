@@ -139,12 +139,11 @@ system is *claimed* to guarantee:
 Struck-through items are now covered by `test_phase_domain_invariants.py`. The
 rest are still open, and they are the ones that matter for a sign-off.
 
-- **Phase 4** — "purchase orders cannot be issued until the vendor is active"
-  is **not a database rule at all**: `procurement.purchase_orders` carries a
-  comment saying it is enforced at the application layer per Blueprint §11. It
-  therefore needs a service-level test, and no schema constraint will ever
-  catch it. Executed contracts requiring immutable document evidence is
-  likewise service-level.
+- **Phase 4** — the application-only vendor-active purchase-order gate and the
+  purchase-order issue/audit commit and explicit-rollback paths are now covered
+  by `test_commercial_service_audit.py` against PostgreSQL. Executed contracts
+  requiring immutable document evidence is still service-level and remains
+  open, as do concurrency/versioning and archival evidence for the phase.
 - **Phase 6** — ~~the composite `(id, project_id)` foreign keys~~ now covered.
   Still open: "material issuance is serialized against its receipt and rejects
   cumulative quantities above accepted stock", which is a service-level check
@@ -159,14 +158,15 @@ rest are still open, and they are the ones that matter for a sign-off.
   Still open, and the more important one: that aggregate reads use the distinct
   read-replica session and never the transactional one. The route test asserts
   the wiring; nothing asserts the behaviour against two real databases.
-- **Phases 4-10** — still entirely open for the largest remaining gap: the
+- **Phases 4-10** — still mostly open for the largest remaining gap: the
   blueprint-wide service invariants. Every mutation writes its audit event *in
   the same transaction*, optimistic versioning holds under concurrency, and
   archival replaces deletion. Phase 1 proves these for
-  `organization.projects`; Phase 3 now proves commit/rollback atomicity for
-  `land.land_parcels`. The other domain-invariant tests exercise constraints
-  directly and deliberately bypass the service layer where these guarantees
-  live. Phase 3 concurrency/versioning and archival coverage also remain open.
+  `organization.projects`; Phase 3 proves commit/rollback atomicity for
+  `land.land_parcels`; Phase 4 now proves it for purchase-order issuance. The
+  other domain-invariant tests exercise constraints directly and deliberately
+  bypass the service layer where these guarantees live. Concurrency/versioning
+  and archival coverage outside Phase 1 also remain open.
 
 ## What sign-off is defensible today
 
@@ -177,14 +177,15 @@ A fair reading of the evidence:
 - **Phase 2** — re-record with the narrowness noted; two integration tests is
   thin for the size of the phase.
 - **Phases 3-10** — each now has one integration test proving its strongest
-  database-enforced rule, which is a real improvement on nothing but is still
-  materially weaker than Phase 1's 36. Defensible to re-record **scoped to that
-  named rule**: "the unit double-booking guarantee is evidenced" is now true;
-  "Phase 8 is verified" is not. The service-layer guarantees — same-transaction
-  audit, optimistic versioning, the cumulative and workflow checks — remain
-  untested for these phases, and they are where most of the business logic
-  actually lives. Sign off on the specific rule, or commission service-level
-  tests before claiming the phase as a whole.
+  database-enforced rule. Phases 3 and 4 additionally have one focused
+  service-level transaction slice. This is a real improvement on nothing but
+  is still materially weaker than Phase 1's coverage. Defensible to re-record
+  **scoped to the named rules**: "the unit double-booking guarantee is
+  evidenced" is now true; "Phase 8 is verified" is not. The remaining
+  service-layer guarantees — same-transaction audit, optimistic versioning,
+  cumulative checks, and workflows — are where most of the business logic
+  lives. Sign off on specific rules, not whole phases, until that coverage is
+  built.
 - **Phase 11** — not eligible; it remains a fail-closed foundation pending the
   Blueprint §25 hosting decision.
 
@@ -194,16 +195,15 @@ The eight database-invariant tests are done. The remaining gap has shifted from
 "no integration coverage" to "no *service-level* integration coverage", and it
 is the more valuable half.
 
-The highest-return piece identified here is now complete for Phase 3:
-`test_land_service_audit.py` proves commit and explicit rollback atomicity for
-one real non-Phase-1 service. The next evidence slice should apply the same
-pattern to Phase 4 and include its application-only vendor-active purchase-order
-gate, then continue phase by phase rather than extrapolating one domain's proof
-to the others.
+The highest-return pieces identified here are now complete for Phase 3 and the
+first Phase 4 service slice. `test_land_service_audit.py` proves commit and
+explicit rollback atomicity for land-parcel creation;
+`test_commercial_service_audit.py` proves the application-only vendor-active
+purchase-order gate plus issue/audit commit and explicit rollback. Continue
+phase by phase rather than extrapolating either domain's proof to the others.
 
-After that, in rough order of risk: Phase 10's read-replica separation (it is a
+Next, in rough order of risk: Phase 10's read-replica separation (it is a
 data-leak boundary, not just a performance one), Phase 8's over-allocation
-checks, and Phase 4's vendor-active gate, which no schema constraint can ever
-catch.
+checks, and Phase 4's executed-contract evidence gate.
 
 Recorded so the choice is deliberate rather than inherited.

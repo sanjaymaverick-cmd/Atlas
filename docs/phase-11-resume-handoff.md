@@ -16,6 +16,14 @@ Updated: 2026-08-23 (Asia/Calcutta)
   skips; Ruff lint and format; strict mypy over 157 files; 25 import contracts;
   Bandit with no medium/high findings; pip-audit with no known vulnerabilities;
   and sole Alembic head `0012_phase11_ai_safety`.
+- Phase 4 now has three PostgreSQL service tests proving its application-only
+  vendor-active purchase-order issue gate and proving that the issue state
+  change and audit event commit and explicitly roll back together. The focused
+  run passed 3 tests with zero skips on 2026-08-23. Post-change verification
+  passed: 340 tests against real PostgreSQL with zero skips; Ruff lint and
+  format; strict mypy over 157 files; all 25 import contracts; Bandit with no
+  medium/high findings; pip-audit with no known vulnerabilities; and sole
+  Alembic head `0012_phase11_ai_safety`.
 - Phase 11 remains blocked at the owner-only Blueprint section 25 AI-hosting
   decision. Do not select or implement an inference provider autonomously.
 - Before any staging operation, inspect ignored and untracked files as well as
