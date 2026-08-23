@@ -53,6 +53,12 @@ Updated: 2026-08-23 (Asia/Calcutta)
   paths. Post-change verification passed 350 tests against real PostgreSQL with
   zero skips, Ruff, strict mypy over 157 files, all 25 import contracts,
   Bandit, pip-audit, and the sole Alembic head.
+- Phase 9 validation now refuses a pending Tally batch if voucher rows already
+  exist. Validation and voucher import serialize on the batch row. PostgreSQL
+  tests prove contaminated-batch refusal, clean commit with one valid audit
+  event, and explicit rollback. Post-change verification passed 353 tests
+  against real PostgreSQL with zero skips, Ruff, strict mypy over 157 files,
+  all 25 import contracts, Bandit, pip-audit, and the sole Alembic head.
 - Phase 11 remains blocked at the owner-only Blueprint section 25 AI-hosting
   decision. Do not select or implement an inference provider autonomously.
 - Before any staging operation, inspect ignored and untracked files as well as

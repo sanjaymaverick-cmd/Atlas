@@ -489,6 +489,12 @@ instance. None was introduced by Phase 11; all predate it.
 - [ ] Approve the exact Tally export formats, supported Tally versions, company
   and legal-entity mapping, fiscal periods, currency/tax treatment, and how an
   export is proven complete before a batch may be validated.
+  Provisional integrity rule implemented 2026-08-23: validation locks the batch
+  and refuses any pending batch that already contains voucher rows. Voucher
+  import uses the same lock, preventing application-level validation/import
+  races. PostgreSQL tests prove refusal leaves status, validation summary,
+  version, and audit chain unchanged. Owner approval is still required for the
+  authoritative completeness manifest and partial-file recovery policy.
 - [ ] Keep Tally credentials, license details, bank data, narration, party tax
   identifiers, unrestricted exports, and raw provider payloads out of source,
   logs, fixtures, HTTP bodies, and audit events. Source exports must remain in

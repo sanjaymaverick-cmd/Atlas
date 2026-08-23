@@ -156,9 +156,12 @@ rest are still open, and they are the ones that matter for a sign-off.
   plan, proving two individually valid requests cannot jointly exceed its
   total. Still open: linkage to an unexecuted or wrong-customer contract and
   broader transaction/version/archive coverage.
-- **Phase 9** — ~~`uq_reconciliation_fact`~~ now covered, including the NULL
-  voucher path. Still open: the guard that refuses import when pre-existing
-  Tally vouchers are present.
+- **Phase 9** — `uq_reconciliation_fact` and the pending-batch pre-existing
+  voucher guard are now covered. Validation and voucher import both lock the
+  batch row; PostgreSQL tests prove a contaminated pending batch is refused
+  unchanged and clean validation commits or rolls back with its audit event.
+  Background parsing, full-file completeness, and production Tally integration
+  remain deployment/workflow gates.
 - **Phase 10** — the project-scope check on report requests and the distinct
   reporting-database read path are now covered. The latter test provisions two
   real databases, seeds the dashboard project only in reporting, and proves
@@ -186,7 +189,7 @@ A fair reading of the evidence:
 - **Phase 2** — re-record with the narrowness noted; two integration tests is
   thin for the size of the phase.
 - **Phases 3-10** — each now has one integration test proving its strongest
-  database-enforced rule. Phases 3, 4, 8, and 10 additionally have focused
+  database-enforced rule. Phases 3, 4, 8, 9, and 10 additionally have focused
   service-level or database-boundary slices. This is a real improvement but
   is still materially weaker than Phase 1's coverage. Defensible to re-record
   **scoped to the named rules**: "the unit double-booking guarantee is
@@ -211,10 +214,9 @@ explicit rollback atomicity for land-parcel creation;
 purchase-order gate plus issue/audit commit and explicit rollback. Continue
 phase by phase rather than extrapolating either domain's proof to the others.
 
-Next, in rough order of risk: Phase 9's refusal to import over pre-existing
-vouchers, Phase 6's cumulative material issuance check, Phase 8's executed
-customer-contract linkage, and the remaining phase-by-phase service transaction
-proofs.
+Next, in rough order of risk: Phase 6's cumulative material issuance check,
+Phase 8's executed customer-contract linkage, and the remaining phase-by-phase
+service transaction proofs.
 Phase 10 production replication and refresh scheduling stay in the
 owner-reviewed deployment register rather than being simulated in code.
 

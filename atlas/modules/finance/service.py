@@ -195,6 +195,11 @@ class FinanceService:
         await self._require(s, actor_user_id, "finance.tally.validate", row.legal_entity_id)
         if row.status != "pending_validation":
             raise FinanceConflictError("only a pending import batch may be validated")
+        existing_voucher = await s.scalar(
+            select(TallyVoucher.id).where(TallyVoucher.import_batch_id == row.id).limit(1)
+        )
+        if existing_voucher is not None:
+            raise FinanceConflictError("import batch already contains vouchers")
         before = {"status": row.status, "version": row.version}
         row.status = "validated"
         row.validation_summary = {"schema_valid": True}
