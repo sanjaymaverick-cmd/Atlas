@@ -15,6 +15,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from atlas.modules.reporting.contracts import ReportingUnavailableError
 from atlas.modules.reporting.service import ReportingService
 
 pytestmark = [pytest.mark.integration]
@@ -77,6 +78,16 @@ async def test_dashboard_reads_the_reporting_database_not_primary(
         group_id, entity_id, project_id = uuid4(), uuid4(), uuid4()
         reporting_factory = async_sessionmaker(reporting_engine, expire_on_commit=False)
         async with reporting_factory() as reporting:
+            primary_factory = async_sessionmaker(primary_engine, expire_on_commit=False)
+            async with primary_factory() as primary:
+                with pytest.raises(ReportingUnavailableError, match="not ready"):
+                    await ReportingService(AllowAllIdentity()).get_project_dashboard(
+                        primary,
+                        reporting,
+                        actor_user_id=uuid4(),
+                        project_id=project_id,
+                    )
+
             await reporting.execute(
                 text(
                     "INSERT INTO organization.business_groups (id, name, status, version) "
@@ -105,7 +116,6 @@ async def test_dashboard_reads_the_reporting_database_not_primary(
             )
             await reporting.commit()
 
-            primary_factory = async_sessionmaker(primary_engine, expire_on_commit=False)
             async with primary_factory() as primary:
                 identity = AllowAllIdentity()
                 dashboard = await ReportingService(identity).get_project_dashboard(

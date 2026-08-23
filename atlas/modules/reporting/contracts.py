@@ -27,6 +27,10 @@ class ReportingConflictError(Exception):
     pass
 
 
+class ReportingUnavailableError(Exception):
+    pass
+
+
 class ReportingContract(Protocol):
     async def get_project_dashboard(
         self,

@@ -45,6 +45,7 @@ from atlas.modules.land.schemas import LandParcelCreate, LandParcelSummary
 from atlas.modules.organization.contracts import ConflictError, NotAuthorisedError, NotFoundError
 from atlas.modules.organization.schemas import ProjectCreate, ProjectSummary, ProjectUpdate
 from atlas.modules.project_controls.schemas import BimImportCreate, BimImportSummary
+from atlas.modules.reporting.contracts import ReportingUnavailableError
 from atlas.modules.reporting.schemas import ProjectDashboard
 from atlas.platform.access_control import DeviceTrust
 
@@ -443,6 +444,18 @@ class FakeReporting:
             committed_unit_count=1,
             refreshed_at=datetime.now(UTC),
         )
+
+
+class UnavailableReporting(FakeReporting):
+    async def get_project_dashboard(
+        self,
+        primary: object,
+        reporting: object,
+        *,
+        actor_user_id: UUID,
+        project_id: UUID,
+    ) -> ProjectDashboard:
+        raise ReportingUnavailableError("driver detail must not cross HTTP")
 
 
 class FakeAssistant:
@@ -903,6 +916,20 @@ async def test_phase10_dashboard_uses_a_distinct_read_only_reporting_session() -
     primary, replica = reporting.sessions[0]
     assert primary is not replica
     assert sessions.sessions[0].commits == 1
+
+
+async def test_phase10_unpopulated_dashboard_returns_safe_retryable_error() -> None:
+    client, _, _ = build_client(reporting=UnavailableReporting())
+    async with client:
+        response = await client.get(f"/api/v1/projects/{PROJECT_ID}/dashboard")
+    assert response.status_code == 503
+    assert response.headers["Retry-After"] == "60"
+    assert response.json() == {
+        "error": {
+            "code": "reporting_unavailable",
+            "message": "reporting dashboard is not ready",
+        }
+    }
 
 
 async def test_phase11_assistant_endpoint_is_provider_neutral_and_rejects_payloads() -> None:

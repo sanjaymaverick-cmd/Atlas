@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from atlas.modules.identity.contracts import IdentityContract
 from atlas.modules.reporting import service as service_module
-from atlas.modules.reporting.contracts import ReportingConflictError
+from atlas.modules.reporting.contracts import ReportingConflictError, ReportingUnavailableError
 from atlas.modules.reporting.models import ProjectSummaryView
 from atlas.modules.reporting.schemas import ReportRequestCreate
 from atlas.modules.reporting.service import ReportingService
@@ -47,9 +47,16 @@ class ResultStub:
 
 
 class SessionStub:
-    def __init__(self, row: object | None = None, rows: Sequence[object] | None = None) -> None:
+    def __init__(
+        self,
+        row: object | None = None,
+        rows: Sequence[object] | None = None,
+        *,
+        dashboard_ready: bool = True,
+    ) -> None:
         self.row = row
         self.rows = list(rows or [])
+        self.dashboard_ready = dashboard_ready
         self.added: list[object] = []
         self.gets = 0
         self.flushes = 0
@@ -60,6 +67,9 @@ class SessionStub:
 
     async def scalars(self, statement: object) -> ResultStub:
         return ResultStub(self.rows)
+
+    async def scalar(self, statement: object) -> bool:
+        return self.dashboard_ready
 
     def add(self, value: object) -> None:
         self.added.append(value)
@@ -111,6 +121,18 @@ async def test_dashboard_reads_reporting_session_and_authorises_on_primary() -> 
     assert identity.sessions == [primary]
     assert primary.gets == 0
     assert replica.gets == 1
+
+
+async def test_dashboard_refuses_an_unpopulated_reporting_view() -> None:
+    identity = IdentityStub()
+    replica = SessionStub(dashboard_ready=False)
+    with pytest.raises(ReportingUnavailableError, match="not ready"):
+        await ReportingService(cast(IdentityContract, identity)).get_project_dashboard(
+            cast(AsyncSession, SessionStub()),
+            cast(AsyncSession, replica),
+            actor_user_id=uuid4(),
+            project_id=uuid4(),
+        )
 
 
 async def test_entity_dashboard_aggregates_without_identity_fields() -> None:

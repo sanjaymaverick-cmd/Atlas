@@ -201,8 +201,10 @@ instance. None was introduced by Phase 11; all predate it.
   installments, registration and possession records, inspection templates,
   material issuances, and the whole commercial module beyond budgets. The
   registers were the blocking gap; these are the next increment.
-- [ ] BLOCKING, found 2026-08-20: **the Phase 10 dashboards return HTTP 500 on
-  any freshly provisioned database, not stale or empty data.**
+- [ ] BLOCKING, found 2026-08-20: **Phase 10 still needs logical replication
+  and a scheduled materialized-view refresh before go-live.** Originally the
+  dashboards returned HTTP 500 on any freshly provisioned database, not stale
+  or empty data.
   `db/schema.sql` creates `reporting.mv_ceo_project_summary ... WITH NO DATA`,
   and PostgreSQL refuses to read a materialized view that has never been
   populated — `ObjectNotInPrerequisiteStateError: materialized view
@@ -237,6 +239,13 @@ instance. None was introduced by Phase 11; all predate it.
   reporting database while authorisation stays on the transactional session.
   The test performs an explicit local refresh to isolate that boundary; it does
   not resolve this production refresh/replication blocker, which remains open.
+
+  Mitigation update 2026-08-23: Atlas now checks PostgreSQL's authoritative
+  `pg_matviews.ispopulated` flag before dashboard-backed reads. An unpopulated
+  view returns a minimized HTTP 503 `reporting_unavailable` response with a
+  provisional 60-second `Retry-After`, rather than exposing a driver exception
+  as HTTP 500. Owner review is still required for the retry policy and the
+  production scheduler; this mitigation does not make unrefreshed data ready.
 - [x] DECIDED 2026-08-20 by the repository owner: the frontend stack is
   **React + Vite + TypeScript**, resolving the deferral recorded in
   `docs/phase-1-module-boundaries.md` ("no frontend framework has been

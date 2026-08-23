@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from atlas.modules.identity.contracts import IdentityContract
@@ -14,6 +14,7 @@ from atlas.modules.reporting.contracts import (
     ReportingConflictError,
     ReportingNotAuthorisedError,
     ReportingNotFoundError,
+    ReportingUnavailableError,
 )
 from atlas.modules.reporting.models import ProjectSummaryView, ReportRequest
 from atlas.modules.reporting.schemas import (
@@ -67,6 +68,16 @@ class ReportingService:
         ):
             raise ReportingNotAuthorisedError(f"user may not {permission} in requested scope")
 
+    async def _require_dashboard_ready(self, reporting: AsyncSession) -> None:
+        populated = await reporting.scalar(
+            text(
+                "SELECT ispopulated FROM pg_matviews "
+                "WHERE schemaname = 'reporting' AND matviewname = 'mv_ceo_project_summary'"
+            )
+        )
+        if populated is not True:
+            raise ReportingUnavailableError("reporting dashboard is not ready")
+
     async def get_project_dashboard(
         self,
         primary: AsyncSession,
@@ -76,6 +87,7 @@ class ReportingService:
         project_id: UUID,
     ) -> ProjectDashboard:
         await self._require(primary, actor_user_id, "reporting.dashboard.read", project=project_id)
+        await self._require_dashboard_ready(reporting)
         row = await reporting.get(ProjectSummaryView, project_id)
         if row is None:
             raise ReportingNotFoundError(
@@ -94,6 +106,7 @@ class ReportingService:
         await self._require(
             primary, actor_user_id, "reporting.dashboard.read", entity=legal_entity_id
         )
+        await self._require_dashboard_ready(reporting)
         rows = list(
             (
                 await reporting.scalars(
@@ -146,6 +159,7 @@ class ReportingService:
         if data.report_type == "ceo_project_summary":
             if data.project_id is None:
                 raise ReportingConflictError("project report requires project scope")
+            await self._require_dashboard_ready(reporting)
             source = await reporting.get(ProjectSummaryView, data.project_id)
             if source is None or source.legal_entity_id != data.legal_entity_id:
                 raise ReportingConflictError("project does not belong to reporting legal entity")

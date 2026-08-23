@@ -59,6 +59,7 @@ from atlas.modules.reporting.contracts import (
     ReportingConflictError,
     ReportingNotAuthorisedError,
     ReportingNotFoundError,
+    ReportingUnavailableError,
 )
 from atlas.platform.step_up import StepUpRequiredError
 
@@ -146,4 +147,14 @@ def install_error_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=403,
             content=error_body("step_up_required", "fresh passkey verification is required"),
+        )
+
+    @app.exception_handler(ReportingUnavailableError)
+    async def reporting_unavailable_handler(
+        request: Request, exc: ReportingUnavailableError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=503,
+            content=error_body("reporting_unavailable", "reporting dashboard is not ready"),
+            headers={"Retry-After": "60"},
         )

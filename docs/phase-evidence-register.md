@@ -158,8 +158,10 @@ rest are still open, and they are the ones that matter for a sign-off.
   reporting-database read path are now covered. The latter test provisions two
   real databases, seeds the dashboard project only in reporting, and proves
   authorisation remains on primary while the aggregate comes from reporting.
-  The production logical-replication, refresh worker, and unpopulated-view
-  behaviour remain open go-live gates.
+  The same test proves an unpopulated view is refused explicitly; HTTP tests
+  prove the refusal is a minimized retryable 503 rather than an internal error.
+  Production logical replication and the refresh worker remain open go-live
+  gates.
 - **Phases 4-10** — still mostly open for the largest remaining gap: the
   blueprint-wide service invariants. Every mutation writes its audit event *in
   the same transaction*, optimistic versioning holds under concurrency, and
@@ -204,8 +206,9 @@ explicit rollback atomicity for land-parcel creation;
 purchase-order gate plus issue/audit commit and explicit rollback. Continue
 phase by phase rather than extrapolating either domain's proof to the others.
 
-Next, in rough order of risk: resolve the known Phase 10 unpopulated-view outage
-without pretending local refresh is production replication, then Phase 8's
-over-allocation checks and Phase 4's executed-contract evidence gate.
+Next, in rough order of risk: Phase 8's over-allocation checks, Phase 4's
+executed-contract evidence gate, and the remaining phase-by-phase service
+transaction proofs. Phase 10 production replication and refresh scheduling stay
+in the owner-reviewed deployment register rather than being simulated in code.
 
 Recorded so the choice is deliberate rather than inherited.

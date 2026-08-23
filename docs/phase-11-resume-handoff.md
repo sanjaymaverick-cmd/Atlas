@@ -29,8 +29,15 @@ Updated: 2026-08-23 (Asia/Calcutta)
   authorisation stays on the transactional session. Post-change verification
   passed 341 tests against real PostgreSQL with zero skips, plus Ruff, strict
   mypy over 157 files, all 25 import contracts, Bandit, pip-audit, and sole
-  Alembic head `0012_phase11_ai_safety`. This does not close the separate
-  unpopulated-materialized-view outage or provision logical replication.
+  Alembic head `0012_phase11_ai_safety`. This does not provision logical
+  replication or scheduled refresh.
+- The Phase 10 unpopulated-view HTTP 500 is now mitigated fail-closed: service
+  reads check `pg_matviews.ispopulated`, HTTP returns a generic 503 with a
+  provisional 60-second retry hint, and the real two-database integration test
+  exercises both the unpopulated refusal and populated read. Post-change gates
+  passed 343 tests against real PostgreSQL with zero skips, Ruff, strict mypy,
+  all 25 import contracts, Bandit, pip-audit, and the sole Alembic head. Logical
+  replication and scheduled refresh remain open production gates.
 - Phase 11 remains blocked at the owner-only Blueprint section 25 AI-hosting
   decision. Do not select or implement an inference provider autonomously.
 - Before any staging operation, inspect ignored and untracked files as well as
