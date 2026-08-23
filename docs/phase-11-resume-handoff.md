@@ -100,6 +100,12 @@ Updated: 2026-08-23 (Asia/Calcutta)
   passed 384 tests against real PostgreSQL with zero skips, Ruff, strict mypy
   over 157 files, all 25 import contracts, Bandit, pip-audit, and the sole
   Alembic head.
+- Phase 5 activity, inspection-template, and snag transitions now serialize on
+  their own rows before evaluating lifecycle rules. PostgreSQL tests prove one
+  winner for incompatible concurrent transitions and atomic rollback of state,
+  version, and audit event for every lifecycle. Post-change verification passed
+  390 tests against real PostgreSQL with zero skips, Ruff, strict mypy over 157
+  files, all 25 import contracts, Bandit, pip-audit, and the sole Alembic head.
 - Phase 11 remains blocked at the owner-only Blueprint section 25 AI-hosting
   decision. Do not select or implement an inference provider autonomously.
 - Before any staging operation, inspect ignored and untracked files as well as

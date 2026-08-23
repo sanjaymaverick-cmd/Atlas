@@ -283,7 +283,9 @@ class ConstructionService:
     async def transition_activity(
         self, session: AsyncSession, *, actor_user_id: UUID, activity_id: UUID, target_status: str
     ) -> ScheduleSummary:
-        row = await session.get(ScheduleActivity, activity_id)
+        row = await session.scalar(
+            select(ScheduleActivity).where(ScheduleActivity.id == activity_id).with_for_update()
+        )
         if row is None:
             raise ConstructionNotFoundError(f"activity {activity_id} does not exist")
         await self._require(
@@ -650,7 +652,9 @@ class ConstructionService:
     async def transition_template(
         self, session: AsyncSession, *, actor_user_id: UUID, template_id: UUID, target_status: str
     ) -> TemplateSummary:
-        row = await session.get(InspectionTemplate, template_id)
+        row = await session.scalar(
+            select(InspectionTemplate).where(InspectionTemplate.id == template_id).with_for_update()
+        )
         if row is None:
             raise ConstructionNotFoundError(f"template {template_id} does not exist")
         await self._require(
@@ -870,7 +874,7 @@ class ConstructionService:
     async def transition_snag(
         self, session: AsyncSession, *, actor_user_id: UUID, snag_id: UUID, target_status: str
     ) -> SnagSummary:
-        row = await session.get(SnagItem, snag_id)
+        row = await session.scalar(select(SnagItem).where(SnagItem.id == snag_id).with_for_update())
         if row is None:
             raise ConstructionNotFoundError(f"snag {snag_id} does not exist")
         await self._require(

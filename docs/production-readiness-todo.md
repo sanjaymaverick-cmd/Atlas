@@ -386,6 +386,13 @@ instance. None was introduced by Phase 11; all predate it.
 - [ ] Approve inspection template governance, required evidence types,
   inspector independence, failed-inspection/NCR escalation, snag severity/SLA,
   rectification verification, and close authority.
+  Provisional integrity control implemented 2026-08-23: inspection-template
+  and snag transitions lock their rows before evaluating the state machine;
+  schedule-activity transitions use the same serialization. PostgreSQL tests
+  prove incompatible concurrent transitions produce one committed winner and
+  rollback removes both the transition and audit event. Confirm who may retire
+  templates, complete activities, rectify/verify/close snags, and which actions
+  require independent approval or fresh step-up.
 - [ ] Site photos, certificates, inspection reports, and progress evidence must
   use restricted Documents records. Raw binaries, public URLs, GPS metadata,
   biometric data, and personal identifiers must not be embedded in JSON fields,

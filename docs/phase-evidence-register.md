@@ -10,7 +10,7 @@ and an explicit rollback is proved to remove both the parcel and its audit
 event. This closes that invariant for Phase 3 only; it does not imply the same
 coverage for Phases 4-10.
 
-The latest post-change full suite passed with **384 tests and zero skips**
+The latest post-change full suite passed with **390 tests and zero skips**
 against the real disposable PostgreSQL 16 database. This count includes newer
 authenticated read/UI and phase-specific service coverage added after the
 original 2026-08-18 count below.
@@ -165,7 +165,10 @@ rest are still open, and they are the ones that matter for a sign-off.
   PostgreSQL tests prove concurrent finalization produces one final state and
   one audit event, while valid evidence rows and audit commit or roll back
   together. Inspection notes and snag descriptions remain outside audit
-  payloads.
+  payloads. Activity, inspection-template, and snag transitions now lock their
+  rows before evaluating the state machine. Parameterized PostgreSQL tests
+  prove incompatible concurrent transitions produce one winner and that each
+  lifecycle's state/version and audit event roll back together.
 - **Phase 6** — the composite `(id, project_id)` foreign keys and cumulative
   material-issuance guard are now covered. A two-session PostgreSQL test proves
   the second issuer blocks on the receipt lock and only one competing 60-of-100
@@ -199,9 +202,9 @@ rest are still open, and they are the ones that matter for a sign-off.
   archival replaces deletion. Phase 1 proves these for
   `organization.projects`; Phase 3 proves commit/rollback atomicity for
   `land.land_parcels`; Phase 4 proves it for purchase-order issuance, and Phase
-  5 proves it for EHS corrective-action assignment and schedule-progress
-  creation. The other domain-invariant tests exercise constraints directly and
-  deliberately
+  5 proves it for EHS corrective-action assignment, schedule-progress creation,
+  inspection completion, and activity/template/snag transitions. The other
+  domain-invariant tests exercise constraints directly and deliberately
   bypass the service layer where these guarantees live. Concurrency/versioning
   and archival coverage outside Phase 1 also remain open.
 
