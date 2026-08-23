@@ -154,10 +154,12 @@ rest are still open, and they are the ones that matter for a sign-off.
 - **Phase 9** — ~~`uq_reconciliation_fact`~~ now covered, including the NULL
   voucher path. Still open: the guard that refuses import when pre-existing
   Tally vouchers are present.
-- **Phase 10** — ~~the project-scope check on report requests~~ now covered.
-  Still open, and the more important one: that aggregate reads use the distinct
-  read-replica session and never the transactional one. The route test asserts
-  the wiring; nothing asserts the behaviour against two real databases.
+- **Phase 10** — the project-scope check on report requests and the distinct
+  reporting-database read path are now covered. The latter test provisions two
+  real databases, seeds the dashboard project only in reporting, and proves
+  authorisation remains on primary while the aggregate comes from reporting.
+  The production logical-replication, refresh worker, and unpopulated-view
+  behaviour remain open go-live gates.
 - **Phases 4-10** — still mostly open for the largest remaining gap: the
   blueprint-wide service invariants. Every mutation writes its audit event *in
   the same transaction*, optimistic versioning holds under concurrency, and
@@ -202,8 +204,8 @@ explicit rollback atomicity for land-parcel creation;
 purchase-order gate plus issue/audit commit and explicit rollback. Continue
 phase by phase rather than extrapolating either domain's proof to the others.
 
-Next, in rough order of risk: Phase 10's read-replica separation (it is a
-data-leak boundary, not just a performance one), Phase 8's over-allocation
-checks, and Phase 4's executed-contract evidence gate.
+Next, in rough order of risk: resolve the known Phase 10 unpopulated-view outage
+without pretending local refresh is production replication, then Phase 8's
+over-allocation checks and Phase 4's executed-contract evidence gate.
 
 Recorded so the choice is deliberate rather than inherited.

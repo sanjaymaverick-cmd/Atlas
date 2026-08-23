@@ -24,6 +24,13 @@ Updated: 2026-08-23 (Asia/Calcutta)
   format; strict mypy over 157 files; all 25 import contracts; Bandit with no
   medium/high findings; pip-audit with no known vulnerabilities; and sole
   Alembic head `0012_phase11_ai_safety`.
+- Phase 10 now has a two-database PostgreSQL integration test proving dashboard
+  aggregates are read from the distinct reporting database while scoped-role
+  authorisation stays on the transactional session. Post-change verification
+  passed 341 tests against real PostgreSQL with zero skips, plus Ruff, strict
+  mypy over 157 files, all 25 import contracts, Bandit, pip-audit, and sole
+  Alembic head `0012_phase11_ai_safety`. This does not close the separate
+  unpopulated-materialized-view outage or provision logical replication.
 - Phase 11 remains blocked at the owner-only Blueprint section 25 AI-hosting
   decision. Do not select or implement an inference provider autonomously.
 - Before any staging operation, inspect ignored and untracked files as well as

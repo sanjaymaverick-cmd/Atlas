@@ -230,7 +230,13 @@ instance. None was introduced by Phase 11; all predate it.
 
   Found by building the dashboards UI. Like the authorisation defect above, it
   was invisible to the suite: the four reporting tests are database-free, and
-  no integration test touches the reporting database at all.
+  no integration test touched the reporting database at all.
+
+  Evidence update 2026-08-23: `test_reporting_database_separation.py` now uses
+  two real PostgreSQL databases and proves dashboard aggregates come from the
+  reporting database while authorisation stays on the transactional session.
+  The test performs an explicit local refresh to isolate that boundary; it does
+  not resolve this production refresh/replication blocker, which remains open.
 - [x] DECIDED 2026-08-20 by the repository owner: the frontend stack is
   **React + Vite + TypeScript**, resolving the deferral recorded in
   `docs/phase-1-module-boundaries.md` ("no frontend framework has been
