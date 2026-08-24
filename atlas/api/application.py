@@ -118,7 +118,7 @@ def create_app(
     customer_lifecycle = (
         customer_lifecycle_service
         if customer_lifecycle_service is not None
-        else CustomerLifecycleService(identity, organization, commercial)
+        else CustomerLifecycleService(identity, organization, commercial, documents)
     )
     finance = finance_service if finance_service is not None else FinanceService(identity)
     reporting = reporting_service if reporting_service is not None else ReportingService(identity)

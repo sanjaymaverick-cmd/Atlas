@@ -41,6 +41,12 @@ from atlas.modules.customer_lifecycle.schemas import (
     RegistrationSummary,
     RegistrationTransition,
 )
+from atlas.modules.documents.contracts import (
+    DocumentConflictError,
+    DocumentNotAuthorisedError,
+    DocumentNotFoundError,
+    DocumentsContract,
+)
 from atlas.modules.identity.contracts import IdentityContract
 from atlas.modules.organization.contracts import OrganizationContract
 from atlas.platform.audit.writer import record_event
@@ -50,6 +56,8 @@ REG_TRANSITIONS = {
     "scheduled": frozenset({"registered", "cancelled"}),
 }
 POS_TRANSITIONS = {"pending": frozenset({"snag_review"}), "snag_review": frozenset({"handed_over"})}
+RECORD_EVIDENCE_STATES = frozenset({"virus_scanned", "under_review", "approved", "issued"})
+FINAL_EVIDENCE_STATES = frozenset({"approved", "issued"})
 
 
 def booking_summary(r: Booking) -> BookingSummary:
@@ -131,10 +139,12 @@ class CustomerLifecycleService:
         identity: IdentityContract,
         organization: OrganizationContract,
         commercial: CommercialContract,
+        documents: DocumentsContract | None = None,
     ) -> None:
         self._identity = identity
         self._organization = organization
         self._commercial = commercial
+        self._documents = documents
 
     async def _require(self, s: AsyncSession, actor: UUID, permission: str, project: UUID) -> None:
         if not await self._identity.check_scoped_role(
@@ -171,6 +181,41 @@ class CustomerLifecycleService:
             raise CustomerLifecycleNotFoundError(f"booking {booking_id} does not exist")
         return row
 
+    async def _locked_booking(self, s: AsyncSession, booking_id: UUID) -> Booking:
+        row = await s.scalar(select(Booking).where(Booking.id == booking_id).with_for_update())
+        if row is None or row.archived_at is not None:
+            raise CustomerLifecycleNotFoundError(f"booking {booking_id} does not exist")
+        return row
+
+    async def _require_evidence(
+        self,
+        s: AsyncSession,
+        *,
+        actor_user_id: UUID,
+        project_id: UUID,
+        document_id: UUID,
+        accepted_revision_statuses: frozenset[str],
+    ) -> None:
+        if self._documents is None:
+            raise CustomerLifecycleConflictError("controlled evidence verification is unavailable")
+        try:
+            document = await self._documents.get_document(
+                s, actor_user_id=actor_user_id, document_id=document_id
+            )
+            revisions = await self._documents.list_revisions(
+                s, actor_user_id=actor_user_id, document_id=document_id
+            )
+        except (DocumentConflictError, DocumentNotAuthorisedError, DocumentNotFoundError) as exc:
+            raise CustomerLifecycleConflictError("controlled evidence is unavailable") from exc
+        if (
+            document.project_id != project_id
+            or document.archived_at is not None
+            or not any(revision.status in accepted_revision_statuses for revision in revisions)
+        ):
+            raise CustomerLifecycleConflictError(
+                "controlled evidence must be active, in project, and in an accepted revision state"
+            )
+
     async def create_booking(
         self, s: AsyncSession, *, actor_user_id: UUID, data: BookingCreate
     ) -> BookingSummary:
@@ -179,6 +224,14 @@ class CustomerLifecycleService:
             s, unit_id=data.unit_id, project_id=data.project_id
         ):
             raise CustomerLifecycleConflictError("unit must belong to booking project")
+        if data.booking_document_id is not None:
+            await self._require_evidence(
+                s,
+                actor_user_id=actor_user_id,
+                project_id=data.project_id,
+                document_id=data.booking_document_id,
+                accepted_revision_statuses=RECORD_EVIDENCE_STATES,
+            )
         now = datetime.now(UTC)
         row = Booking(
             id=uuid4(),
@@ -225,10 +278,21 @@ class CustomerLifecycleService:
     async def cancel_booking(
         self, s: AsyncSession, *, actor_user_id: UUID, booking_id: UUID
     ) -> BookingSummary:
-        row = await self._booking(s, booking_id)
+        row = await self._locked_booking(s, booking_id)
         await self._require(s, actor_user_id, "customer.booking.cancel", row.project_id)
         if row.status != "booked":
             raise CustomerLifecycleConflictError("only a booked record may be cancelled")
+        for model in (PaymentPlan, Collection, Registration, Possession, BookingContract):
+            downstream_id = await s.scalar(
+                select(model.id).where(
+                    model.booking_id == row.id,
+                    model.archived_at.is_(None),
+                )
+            )
+            if downstream_id is not None:
+                raise CustomerLifecycleConflictError(
+                    "booking with financial or legal lifecycle records cannot be cancelled directly"
+                )
         before = {"status": row.status, "version": row.version}
         row.status = "cancelled"
         row.updated_at = datetime.now(UTC)
@@ -347,6 +411,26 @@ class CustomerLifecycleService:
         await self._require(s, actor_user_id, "customer.collection.record", booking.project_id)
         if booking.status == "cancelled" or data.amount <= 0:
             raise CustomerLifecycleConflictError("collection cannot be recorded")
+        if data.installment_id is not None:
+            installment = await s.get(Installment, data.installment_id)
+            if installment is None or installment.archived_at is not None:
+                raise CustomerLifecycleConflictError("target installment does not exist")
+            plan = await s.get(PaymentPlan, installment.payment_plan_id)
+            if (
+                plan is None
+                or plan.archived_at is not None
+                or plan.status != "active"
+                or plan.booking_id != booking.id
+            ):
+                raise CustomerLifecycleConflictError("installment does not belong to booking")
+        if data.evidence_document_id is not None:
+            await self._require_evidence(
+                s,
+                actor_user_id=actor_user_id,
+                project_id=booking.project_id,
+                document_id=data.evidence_document_id,
+                accepted_revision_statuses=RECORD_EVIDENCE_STATES,
+            )
         now = datetime.now(UTC)
         row = Collection(
             id=uuid4(),
@@ -469,12 +553,12 @@ class CustomerLifecycleService:
         booking_id: UUID,
         data: RegistrationTransition,
     ) -> RegistrationSummary:
-        booking = await self._booking(s, booking_id)
+        booking = await self._locked_booking(s, booking_id)
         await self._require(s, actor_user_id, "customer.registration.update", booking.project_id)
         row = await s.scalar(
-            select(Registration).where(
-                Registration.booking_id == booking.id, Registration.archived_at.is_(None)
-            )
+            select(Registration)
+            .where(Registration.booking_id == booking.id, Registration.archived_at.is_(None))
+            .with_for_update()
         )
         if row is None:
             now = datetime.now(UTC)
@@ -503,6 +587,14 @@ class CustomerLifecycleService:
         ):
             raise CustomerLifecycleConflictError(
                 "registration requires date and controlled evidence"
+            )
+        if data.evidence_document_id is not None:
+            await self._require_evidence(
+                s,
+                actor_user_id=actor_user_id,
+                project_id=booking.project_id,
+                document_id=data.evidence_document_id,
+                accepted_revision_statuses=FINAL_EVIDENCE_STATES,
             )
         before = {"status": row.status, "version": row.version}
         row.status = data.target_status
@@ -555,14 +647,14 @@ class CustomerLifecycleService:
     async def transition_possession(
         self, s: AsyncSession, *, actor_user_id: UUID, booking_id: UUID, data: PossessionTransition
     ) -> PossessionSummary:
-        booking = await self._booking(s, booking_id)
+        booking = await self._locked_booking(s, booking_id)
         await self._require(s, actor_user_id, "customer.possession.update", booking.project_id)
         if booking.status not in {"registered", "possessed"}:
             raise CustomerLifecycleConflictError("booking must be registered before possession")
         row = await s.scalar(
-            select(Possession).where(
-                Possession.booking_id == booking.id, Possession.archived_at.is_(None)
-            )
+            select(Possession)
+            .where(Possession.booking_id == booking.id, Possession.archived_at.is_(None))
+            .with_for_update()
         )
         if row is None:
             now = datetime.now(UTC)
@@ -590,6 +682,14 @@ class CustomerLifecycleService:
             data.handover_date is None or data.evidence_document_id is None
         ):
             raise CustomerLifecycleConflictError("handover requires date and controlled evidence")
+        if data.evidence_document_id is not None:
+            await self._require_evidence(
+                s,
+                actor_user_id=actor_user_id,
+                project_id=booking.project_id,
+                document_id=data.evidence_document_id,
+                accepted_revision_statuses=FINAL_EVIDENCE_STATES,
+            )
         before = {"status": row.status, "version": row.version}
         row.status = data.target_status
         if data.handover_date:
@@ -654,6 +754,13 @@ class CustomerLifecycleService:
             raise CustomerLifecycleConflictError(
                 "only an executed contract with evidence may be linked"
             )
+        await self._require_evidence(
+            s,
+            actor_user_id=actor_user_id,
+            project_id=booking.project_id,
+            document_id=contract.executed_document_id,
+            accepted_revision_statuses=FINAL_EVIDENCE_STATES,
+        )
         now = datetime.now(UTC)
         row = BookingContract(
             id=uuid4(),

@@ -10,13 +10,20 @@ from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from atlas.modules.commercial.contracts import CommercialContract
 from atlas.modules.commercial.service import CommercialService
+from atlas.modules.customer_lifecycle import service as service_module
 from atlas.modules.customer_lifecycle.contracts import CustomerLifecycleConflictError
-from atlas.modules.customer_lifecycle.schemas import InstallmentCreate
+from atlas.modules.customer_lifecycle.schemas import (
+    CollectionCreate,
+    InstallmentCreate,
+    PossessionTransition,
+    RegistrationTransition,
+)
 from atlas.modules.customer_lifecycle.service import CustomerLifecycleService
 from atlas.modules.documents.service import DocumentsService
 from atlas.modules.identity.contracts import IdentityContract
@@ -65,20 +72,25 @@ class UnusedDependency:
     pass
 
 
-def _service(identity: AllowAllIdentity) -> CustomerLifecycleService:
+def _service(
+    identity: AllowAllIdentity, documents: DocumentsService | None = None
+) -> CustomerLifecycleService:
     return CustomerLifecycleService(
         cast(IdentityContract, identity),
         cast(OrganizationContract, UnusedDependency()),
         cast(CommercialContract, UnusedDependency()),
+        documents,
     )
 
 
 def _link_service(identity: AllowAllIdentity) -> CustomerLifecycleService:
-    commercial = CommercialService(identity, DocumentsService(identity))
+    documents = DocumentsService(identity)
+    commercial = CommercialService(identity, documents)
     return CustomerLifecycleService(
         cast(IdentityContract, identity),
         cast(OrganizationContract, UnusedDependency()),
         commercial,
+        documents,
     )
 
 
@@ -189,6 +201,45 @@ async def _seed_customer_plan(session: AsyncSession) -> tuple[UUID, UUID, UUID, 
 
 async def _audit_count(session: AsyncSession) -> int:
     return int((await session.scalar(text("SELECT COUNT(*) FROM audit.audit_events"))) or 0)
+
+
+async def _seed_document(
+    session: AsyncSession, *, actor_id: UUID, project_id: UUID, status: str = "approved"
+) -> UUID:
+    document_id, revision_id = uuid4(), uuid4()
+    document_status = status if status in {"approved", "issued"} else "under_review"
+    await session.execute(
+        text(
+            "INSERT INTO documents.documents "
+            "(id, project_id, document_type, classification, status, created_by, updated_by, "
+            "version) VALUES (:id, :project_id, 'customer_evidence', 'restricted', "
+            ":document_status, "
+            ":actor_id, :actor_id, 1)"
+        ),
+        {
+            "id": document_id,
+            "project_id": project_id,
+            "document_status": document_status,
+            "actor_id": actor_id,
+        },
+    )
+    await session.execute(
+        text(
+            "INSERT INTO documents.document_versions "
+            "(id, document_id, revision_code, object_storage_key, checksum_sha256, status, "
+            "author_id) VALUES (:id, :document_id, 'SYN-1', :object_key, :checksum, :status, "
+            ":actor_id)"
+        ),
+        {
+            "id": revision_id,
+            "document_id": document_id,
+            "object_key": f"synthetic/customer-evidence/{revision_id}.pdf",
+            "checksum": "e" * 64,
+            "status": status,
+            "actor_id": actor_id,
+        },
+    )
+    return document_id
 
 
 async def _seed_contract_for_booking(
@@ -480,3 +531,323 @@ async def test_booking_links_matching_executed_contract_with_one_audit(
         assert linked.booking_id == booking_id
         assert linked.contract_id == contract_id
         assert await _audit_count(session) == 1
+
+
+async def test_collection_refuses_installment_from_another_booking(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        actor_id, booking_id, _, _ = await _seed_customer_plan(session)
+        _, _, other_plan_id, _ = await _seed_customer_plan(session)
+        installment_id = uuid4()
+        await session.execute(
+            text(
+                "INSERT INTO customers.payment_plan_installments "
+                "(id, payment_plan_id, due_date, amount, status, version) "
+                "VALUES (:id, :plan_id, :due_date, 100, 'pending', 1)"
+            ),
+            {"id": installment_id, "plan_id": other_plan_id, "due_date": date(2026, 9, 1)},
+        )
+        await session.commit()
+
+        with pytest.raises(CustomerLifecycleConflictError, match="does not belong"):
+            await _service(AllowAllIdentity()).record_collection(
+                session,
+                actor_user_id=actor_id,
+                booking_id=booking_id,
+                data=CollectionCreate(
+                    amount=Decimal("10"),
+                    received_date=date(2026, 8, 24),
+                    installment_id=installment_id,
+                ),
+            )
+        await session.rollback()
+        assert (
+            await session.scalar(
+                text("SELECT COUNT(*) FROM customers.collections WHERE booking_id = :id"),
+                {"id": booking_id},
+            )
+            == 0
+        )
+        assert await _audit_count(session) == 0
+
+
+async def test_collection_refuses_cross_project_evidence(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        actor_id, booking_id, _, _ = await _seed_customer_plan(session)
+        other_actor, _, _, other_project = await _seed_customer_plan(session)
+        document_id = await _seed_document(session, actor_id=other_actor, project_id=other_project)
+        await session.commit()
+
+        with pytest.raises(CustomerLifecycleConflictError, match="in project"):
+            await _service(
+                AllowAllIdentity(), DocumentsService(AllowAllIdentity())
+            ).record_collection(
+                session,
+                actor_user_id=actor_id,
+                booking_id=booking_id,
+                data=CollectionCreate(
+                    amount=Decimal("10"),
+                    received_date=date(2026, 8, 24),
+                    evidence_document_id=document_id,
+                ),
+            )
+        await session.rollback()
+        assert (
+            await session.scalar(
+                text("SELECT COUNT(*) FROM customers.collections WHERE booking_id = :id"),
+                {"id": booking_id},
+            )
+            == 0
+        )
+        assert await _audit_count(session) == 0
+
+
+async def test_database_refuses_cross_project_booking_document(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        _, booking_id, _, _ = await _seed_customer_plan(session)
+        other_actor, _, _, other_project = await _seed_customer_plan(session)
+        document_id = await _seed_document(session, actor_id=other_actor, project_id=other_project)
+        await session.commit()
+
+        with pytest.raises(IntegrityError) as violation:
+            await session.execute(
+                text(
+                    "UPDATE customers.bookings SET booking_document_id = :document_id "
+                    "WHERE id = :booking_id"
+                ),
+                {"document_id": document_id, "booking_id": booking_id},
+            )
+        assert (
+            violation.value.orig.diag.constraint_name  # type: ignore[union-attr]
+            == "fk_bookings_document_project"
+        )
+        await session.rollback()
+
+
+async def test_booking_with_downstream_records_cannot_be_cancelled_directly(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
+        actor_id, booking_id, _, _ = await _seed_customer_plan(session)
+        with pytest.raises(CustomerLifecycleConflictError, match="cannot be cancelled directly"):
+            await _service(AllowAllIdentity()).cancel_booking(
+                session, actor_user_id=actor_id, booking_id=booking_id
+            )
+        await session.rollback()
+        state = (
+            await session.execute(
+                text("SELECT status, version FROM customers.bookings WHERE id = :id"),
+                {"id": booking_id},
+            )
+        ).one()
+        assert tuple(state) == ("booked", 1)
+        assert await _audit_count(session) == 0
+
+
+async def test_concurrent_registration_transition_has_one_winner(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as seed:
+        actor_id, booking_id, _, _ = await _seed_customer_plan(seed)
+
+    identity = AllowAllIdentity()
+    arrivals = 0
+    ready = asyncio.Event()
+    arrival_lock = asyncio.Lock()
+
+    async def schedule() -> str:
+        nonlocal arrivals
+        async with session_factory() as session:
+            async with arrival_lock:
+                arrivals += 1
+                if arrivals == 2:
+                    ready.set()
+            await ready.wait()
+            try:
+                await _service(identity).transition_registration(
+                    session,
+                    actor_user_id=actor_id,
+                    booking_id=booking_id,
+                    data=RegistrationTransition("scheduled"),
+                )
+                await session.commit()
+                return "scheduled"
+            except (CustomerLifecycleConflictError, IntegrityError):
+                await session.rollback()
+                return "conflict"
+
+    results = await asyncio.gather(schedule(), schedule())
+    assert sorted(results) == ["conflict", "scheduled"]
+    async with session_factory() as session:
+        state = (
+            await session.execute(
+                text(
+                    "SELECT status, version FROM customers.registration_records "
+                    "WHERE booking_id = :id"
+                ),
+                {"id": booking_id},
+            )
+        ).one()
+        assert tuple(state) == ("scheduled", 2)
+        assert await _audit_count(session) == 1
+
+
+async def test_possession_refuses_cross_project_final_evidence(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    identity = AllowAllIdentity()
+    documents = DocumentsService(identity)
+    async with session_factory() as session:
+        actor_id, booking_id, _, _ = await _seed_customer_plan(session)
+        other_actor, _, _, other_project = await _seed_customer_plan(session)
+        evidence_id = await _seed_document(session, actor_id=other_actor, project_id=other_project)
+        await session.execute(
+            text("UPDATE customers.bookings SET status = 'registered' WHERE id = :id"),
+            {"id": booking_id},
+        )
+        await session.commit()
+
+        service = _service(identity, documents)
+        await service.transition_possession(
+            session,
+            actor_user_id=actor_id,
+            booking_id=booking_id,
+            data=PossessionTransition("snag_review"),
+        )
+        await session.commit()
+
+        with pytest.raises(CustomerLifecycleConflictError, match="in project"):
+            await service.transition_possession(
+                session,
+                actor_user_id=actor_id,
+                booking_id=booking_id,
+                data=PossessionTransition("handed_over", date(2026, 8, 24), evidence_id),
+            )
+        await session.rollback()
+        state = (
+            await session.execute(
+                text(
+                    "SELECT status, version FROM customers.possession_records "
+                    "WHERE booking_id = :id"
+                ),
+                {"id": booking_id},
+            )
+        ).one()
+        assert tuple(state) == ("snag_review", 2)
+
+
+async def test_registration_and_possession_accept_valid_controlled_evidence(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    identity = AllowAllIdentity()
+    documents = DocumentsService(identity)
+    async with session_factory() as session:
+        actor_id, booking_id, _, project_id = await _seed_customer_plan(session)
+        evidence_id = await _seed_document(session, actor_id=actor_id, project_id=project_id)
+        await session.commit()
+        service = _service(identity, documents)
+
+        await service.transition_registration(
+            session,
+            actor_user_id=actor_id,
+            booking_id=booking_id,
+            data=RegistrationTransition("scheduled"),
+        )
+        registered = await service.transition_registration(
+            session,
+            actor_user_id=actor_id,
+            booking_id=booking_id,
+            data=RegistrationTransition("registered", date(2026, 8, 24), evidence_id),
+        )
+        await service.transition_possession(
+            session,
+            actor_user_id=actor_id,
+            booking_id=booking_id,
+            data=PossessionTransition("snag_review"),
+        )
+        possessed = await service.transition_possession(
+            session,
+            actor_user_id=actor_id,
+            booking_id=booking_id,
+            data=PossessionTransition("handed_over", date(2026, 8, 25), evidence_id),
+        )
+        await session.commit()
+
+        assert registered.status == "registered"
+        assert possessed.status == "handed_over"
+        booking_state = (
+            await session.execute(
+                text("SELECT status, version FROM customers.bookings WHERE id = :id"),
+                {"id": booking_id},
+            )
+        ).one()
+        assert tuple(booking_state) == ("possessed", 3)
+
+
+async def test_registration_refuses_draft_final_evidence(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    identity = AllowAllIdentity()
+    documents = DocumentsService(identity)
+    async with session_factory() as session:
+        actor_id, booking_id, _, project_id = await _seed_customer_plan(session)
+        evidence_id = await _seed_document(
+            session, actor_id=actor_id, project_id=project_id, status="draft"
+        )
+        await session.commit()
+        service = _service(identity, documents)
+        await service.transition_registration(
+            session,
+            actor_user_id=actor_id,
+            booking_id=booking_id,
+            data=RegistrationTransition("scheduled"),
+        )
+        await session.commit()
+
+        with pytest.raises(CustomerLifecycleConflictError, match="accepted revision state"):
+            await service.transition_registration(
+                session,
+                actor_user_id=actor_id,
+                booking_id=booking_id,
+                data=RegistrationTransition("registered", date(2026, 8, 24), evidence_id),
+            )
+        await session.rollback()
+        state = (
+            await session.execute(
+                text(
+                    "SELECT status, version FROM customers.registration_records "
+                    "WHERE booking_id = :id"
+                ),
+                {"id": booking_id},
+            )
+        ).one()
+        assert tuple(state) == ("scheduled", 2)
+
+
+async def test_collection_and_audit_roll_back_together_on_audit_failure(
+    session_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def fail_audit(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("synthetic audit failure")
+
+    monkeypatch.setattr(service_module, "record_event", fail_audit)
+    async with session_factory() as session:
+        actor_id, booking_id, _, _ = await _seed_customer_plan(session)
+        with pytest.raises(RuntimeError, match="synthetic audit failure"):
+            await _service(AllowAllIdentity()).record_collection(
+                session,
+                actor_user_id=actor_id,
+                booking_id=booking_id,
+                data=CollectionCreate(Decimal("10"), date(2026, 8, 24)),
+            )
+        await session.rollback()
+        count = await session.scalar(
+            text("SELECT COUNT(*) FROM customers.collections WHERE booking_id = :id"),
+            {"id": booking_id},
+        )
+        assert count == 0

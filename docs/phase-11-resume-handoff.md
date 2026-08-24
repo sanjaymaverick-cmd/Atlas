@@ -212,6 +212,23 @@ Updated: 2026-08-24 (Asia/Calcutta)
   authority, evidence-state, SLA/escalation, reinspector-independence, retention,
   and migration-rehearsal choices remain in the owner TODO. Continue with the
   Phase 8 integrity audit only after this Phase 7 commit.
+- Phase 8 customer-lifecycle integrity is implemented locally after commit
+  `70ff207`. It validates controlled same-project customer evidence, serializes
+  registration and possession on the booking, rejects cross-booking collection
+  allocation targets, blocks direct cancellation after downstream financial or
+  legal records, and revalidates executed-contract evidence. Canonical DDL and
+  migration `0018_phase8_customer_integrity` enforce booking-document project
+  scope. Verification passed 497 tests with zero skips, including 21 focused
+  PostgreSQL and migration-equivalence tests; Ruff, strict mypy, all 25 import
+  contracts, Bandit, pip-audit, the sole Alembic head, 7 web tests, the
+  production web build, and npm audit also passed. Commit and push Phase 8,
+  then resolve the accounting-system decision before Phase 9 implementation.
+- Before Phase 9 implementation, resolve the new owner proposal to use ERPNext
+  instead of Tally. The current recommendation and TODO boundary are to retain
+  Atlas as the security/audit/domain control plane and integrate a separately
+  deployed ERPNext instance through a published finance adapter. Do not convert
+  the repository to Frappe or make ERPNext authoritative without a separately
+  approved architecture and migration decision.
 - Phase 11 remains blocked at the owner-only Blueprint section 25 AI-hosting
   decision. Do not select or implement an inference provider autonomously.
 - Before any staging operation, inspect ignored and untracked files as well as

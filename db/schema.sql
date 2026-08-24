@@ -1182,14 +1182,17 @@ CREATE TABLE customers.bookings (
   project_id    UUID NOT NULL REFERENCES organization.projects(id),
   lead_id       UUID REFERENCES sales.leads(id),
   booking_date  DATE NOT NULL,
-  booking_document_id UUID REFERENCES documents.documents(id),
+  booking_document_id UUID,
   status        TEXT NOT NULL DEFAULT 'booked' CHECK (status IN ('booked','cancelled','registered','possessed')),
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   created_by    UUID REFERENCES identity.users(id),
   updated_by    UUID REFERENCES identity.users(id),
   version       INTEGER NOT NULL DEFAULT 1,
-  archived_at   TIMESTAMPTZ
+  archived_at   TIMESTAMPTZ,
+  CONSTRAINT fk_bookings_document_project
+    FOREIGN KEY (booking_document_id, project_id)
+    REFERENCES documents.documents(id, project_id)
 );
 
 CREATE TABLE sales.commissions (

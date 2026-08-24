@@ -10,7 +10,7 @@ and an explicit rollback is proved to remove both the parcel and its audit
 event. This closes that invariant for Phase 3 only; it does not imply the same
 coverage for Phases 4-10.
 
-The latest post-change full suite passed on 2026-08-24 with **488 tests and zero
+The latest post-change full suite passed on 2026-08-24 with **497 tests and zero
 skips** against the real disposable PostgreSQL 16 database. This count includes newer
 authenticated read/UI and phase-specific service coverage added after the
 original 2026-08-18 count below.
@@ -252,7 +252,16 @@ rest are still open, and they are the ones that matter for a sign-off.
   plan, proving two individually valid requests cannot jointly exceed its
   total. Booking-contract linkage now has PostgreSQL coverage for wrong project,
   wrong customer, unexecuted/no-evidence refusal, and valid audited linkage.
-  Broader transaction/version/archive coverage remains open.
+  The 2026-08-24 integrity slice adds same-project controlled-evidence checks
+  for booking, collection, registration, possession, and executed-contract
+  linkage; receipt-time installment ownership; serialized registration and
+  possession transitions; downstream-record cancellation refusal; successful
+  controlled registration/handover; and audit-failure rollback. Canonical DDL
+  and migration `0018_phase8_customer_integrity` enforce booking-document
+  project scope, with migration/schema equivalence covered against PostgreSQL.
+  Financial correction and archive semantics remain explicit owner-gated
+  production work because hiding allocated records would alter cumulative
+  financial calculations.
 - **Phase 9** — `uq_reconciliation_fact` and the pending-batch pre-existing
   voucher guard are now covered. Validation and voucher import both lock the
   batch row; PostgreSQL tests prove a contaminated pending batch is refused
@@ -292,7 +301,8 @@ A fair reading of the evidence:
   service-level or database-boundary slices. This is a real improvement but
   is still materially weaker than Phase 1's coverage. Defensible to re-record
   **scoped to the named rules**: "the unit double-booking guarantee is
-  evidenced" is now true; "Phase 8 is verified" is not. The remaining
+  evidenced" and "the Phase 8 production-shaped foundation is verified" are
+  now true. Provider integrations, final owner policies, and production
   service-layer guarantees — same-transaction audit, optimistic versioning,
   cumulative checks, and workflows — are where most of the business logic
   lives. Sign off on specific rules, not whole phases, until that coverage is

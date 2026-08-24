@@ -318,7 +318,7 @@ forbidden_modules =
 allow_indirect_imports = true
 
 [importlinter:contract:customer-lifecycle-independent]
-name = Customer lifecycle uses only published Organization and Commercial contracts
+name = Customer lifecycle uses only published Organization, Commercial, and Documents contracts
 type = forbidden
 source_modules =
     atlas.modules.customer_lifecycle

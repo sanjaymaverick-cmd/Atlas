@@ -15,7 +15,7 @@ current state, environment setup, verified gates, known-broken items, and the
 ordered list of what to do next. `docs/production-readiness-todo.md` is the
 register of every decision the owner must sign off before go-live.
 
-As of 2026-08-24 the full suite passes **488 tests with zero skips** against the
+As of 2026-08-24 the full suite passes **497 tests with zero skips** against the
 local PostgreSQL 16 test database. The original 38 PostgreSQL integration tests
 first passed on 2026-08-18.
 They had never executed: `db/schema.sql` could not be applied to an empty
@@ -93,7 +93,9 @@ passed; CI always runs them against PostgreSQL 16.
 
 ### Next
 
-Continue the phase-by-phase service integrity audit with Phase 8. Real
+Continue with the Phase 9 accounting integration decision and integrity audit.
+Evaluate ERPNext as a separately deployed accounting system behind Atlas's
+published finance adapter instead of assuming a Tally export format. Real
 WebAuthn UAT, encrypted production object storage, malware-scanner
 selection, staging, and DR provisioning remain pre-launch gates tracked in
 `docs/production-readiness-todo.md`.
@@ -232,7 +234,11 @@ Phase 8 operations cover bookings, payment plans/installments, collections and
 allocation, registration, possession, and executed customer-contract linkage
 under `/api/v1`. The service prevents cross-project unit booking, more than one
 active booking per unit, installment/collection over-allocation, and linkage to
-an unexecuted or wrong-customer contract. APIs accept controlled Documents IDs,
+an unexecuted or wrong-customer contract. Customer evidence is fail-closed to
+active same-project controlled Documents revisions; registration and possession
+transitions serialize on the booking, collections cannot target another
+booking's installment, and downstream financial/legal records block direct
+booking cancellation. APIs accept controlled Documents IDs,
 not embedded PII, bank credentials, signatures, or provider payloads.
 
 Phase 9 operations cover controlled Tally export registration, validation,

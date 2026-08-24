@@ -638,6 +638,11 @@ instance. None was introduced by Phase 11; all predate it.
 - [ ] Approve booking authority, unit hold/expiry policy, cancellation/refund
   rules, joint ownership, nominee handling, transfer/resale, pricing/tax rules,
   and the provisional invariant of one non-cancelled booking per unit.
+  Provisional fail-closed rule implemented 2026-08-24: a booking may not be
+  cancelled directly after any active payment plan, collection, registration,
+  possession, or executed-contract link exists. Define compensating
+  cancellation, refund, reversal, unit-release, and approval workflows before
+  enabling real bookings.
 - [ ] Approve payment-plan rounding, installment allocation order, partial and
   excess collections, waivers, overdue timezone, interest/penalty, receipts,
   segregation of collection/allocator roles, and immutable correction entries.
@@ -647,6 +652,9 @@ instance. None was introduced by Phase 11; all predate it.
   locks the target installment and refuses cumulative allocation above its
   amount. PostgreSQL tests cover sequential and concurrent refusal. Owner review
   remains required for rounding, waivers, excess-funds handling, and corrections.
+  Receipt-time validation now also refuses an installment from another booking;
+  decide whether unallocated receipts are permitted and how later allocation,
+  bounce, refund, chargeback, and immutable correction entries are authorized.
 - [ ] Select the e-signature provider and approve signer authentication,
   consent, certificate validation, callback verification, timestamp authority,
   evidence retention, revocation, and provider outage/manual fallback policy.
@@ -658,9 +666,41 @@ instance. None was introduced by Phase 11; all predate it.
 - [ ] Approve registration and possession prerequisites, government reference
   handling, snag clearance, customer acceptance, handover evidence, key/access
   credential transfer, and independent authorization for final handover.
+  Provisional rules implemented 2026-08-24 serialize registration and
+  possession transitions on the booking row, require registration before
+  possession, and require active same-project controlled evidence with an
+  `approved` or `issued` revision for final registration, handover, and contract
+  linkage. Booking/collection evidence accepts `virus_scanned`, `under_review`,
+  `approved`, or `issued` revisions. Confirm whether pre-approval evidence is
+  sufficient for money-receipt records and require independent final approvers
+  if segregation of duties is desired.
+- [ ] Approve the Phase 8 database-versus-service enforcement boundary.
+  PostgreSQL now enforces booking-document/project scope, active-unit uniqueness,
+  and core foreign keys. Unit/project ancestry, collection/installment booking
+  ownership, and registration/possession evidence project scope are checked by
+  the audited service because the current normalized tables do not carry the
+  duplicate project key needed for a simple composite foreign key. Decide
+  whether to retain this boundary, add denormalized project keys, or commission
+  reviewed constraint triggers before production writes are enabled.
+- [ ] Approve customer-record archival and retention roles. Phase 8 exposes no
+  delete path, but terminal booking, plan, installment, collection,
+  registration, possession, and contract-link archival/retention periods still
+  require legal, finance, privacy, and audit-owner sign-off before go-live.
 
 ## Phase 9 — Tally import and reconciliation
 
+- [ ] Decide whether Phase 9 integrates Tally, ERPNext, or another accounting
+  system. ERPNext is provisionally an external/self-hosted accounting system
+  behind an Atlas finance adapter, not a replacement for Atlas's PostgreSQL
+  domain model, passkey/session security, scoped authorization, controlled
+  Documents, or hash-chained audit. Before selection, approve system-of-record
+  ownership, chart-of-accounts and legal-entity mapping, API authentication,
+  least-privilege service accounts, webhook signing/replay protection,
+  idempotency, reconciliation and correction semantics, availability/DR,
+  upgrade compatibility, data residency, GPL-3.0 obligations, and exit/export
+  strategy. A wholesale Frappe/ERPNext rebuild requires a separate architecture,
+  security, privacy, migration, licensing, and cost review and is not authorized
+  by the accounting-provider decision alone.
 - [ ] Approve the exact Tally export formats, supported Tally versions, company
   and legal-entity mapping, fiscal periods, currency/tax treatment, and how an
   export is proven complete before a batch may be validated.
