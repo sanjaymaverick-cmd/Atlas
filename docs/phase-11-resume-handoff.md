@@ -196,6 +196,22 @@ Updated: 2026-08-24 (Asia/Calcutta)
   foundation; parser sandboxing, returns/transfers/wastage/unit conversions,
   asset-master linkage, and owner policy approvals remain explicit pre-live
   items. Continue the integrity audit with Phase 7 only after this commit.
+- Phase 7 is complete as a local production-shaped foundation. Canonical DDL
+  and migration `0017_phase7_workflow_integrity` restore schedule/customer
+  impact stages and enforce same-project controlled evidence for changes, RFIs,
+  NCRs, and discrepancies. All transitions row-lock; controlled evidence is
+  resolved only through the published Documents contract; NCR closure requires
+  a locked active completed passing reinspection through the published
+  Construction contract. All four records have terminal-only, idempotent,
+  versioned, audited archive services, HTTP routes, and web operations. Creation
+  commit/rollback, direct SQL scope refusal, draft evidence, transition races,
+  archive rollback/idempotency, reinspection outcomes, migration equivalence,
+  and privacy-minimized audit payloads have PostgreSQL coverage. Completion
+  verification passed 488 tests with zero skips, Ruff, strict mypy, all 25
+  import contracts, 7 web tests, production build, and npm audit. Production
+  authority, evidence-state, SLA/escalation, reinspector-independence, retention,
+  and migration-rehearsal choices remain in the owner TODO. Continue with the
+  Phase 8 integrity audit only after this Phase 7 commit.
 - Phase 11 remains blocked at the owner-only Blueprint section 25 AI-hosting
   decision. Do not select or implement an inference provider autonomously.
 - Before any staging operation, inspect ignored and untracked files as well as

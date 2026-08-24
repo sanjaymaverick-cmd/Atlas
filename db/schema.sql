@@ -837,13 +837,14 @@ CREATE TABLE construction.change_requests (
   description       TEXT NOT NULL,
   schedule_impact   TEXT,
   budget_impact     NUMERIC(14,2),
-  evidence_document_id UUID REFERENCES documents.documents(id),
+  evidence_document_id UUID,
   requested_by      UUID REFERENCES identity.users(id),
   decided_by        UUID REFERENCES identity.users(id),
   decided_at        TIMESTAMPTZ,
   status            TEXT NOT NULL DEFAULT 'requested'
     CHECK (status IN ('requested','feasibility_review','structural_review','revised_drawings',
                        'quantity_impact','budget_impact','procurement_impact','contract_impact',
+                       'schedule_impact','customer_impact',
                        'commercial_quotation','approved','implemented','verified','closed','rejected')),
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -851,7 +852,10 @@ CREATE TABLE construction.change_requests (
   updated_by        UUID REFERENCES identity.users(id),
   version           INTEGER NOT NULL DEFAULT 1,
   archived_at       TIMESTAMPTZ,
-  CHECK (budget_impact IS NULL OR budget_impact >= 0)
+  CHECK (budget_impact IS NULL OR budget_impact >= 0),
+  CONSTRAINT fk_change_evidence_project
+    FOREIGN KEY (evidence_document_id, project_id)
+    REFERENCES documents.documents(id, project_id)
 );
 
 ALTER TABLE documents.document_versions
@@ -973,7 +977,7 @@ CREATE TABLE quality.rfis (
   routed_to    UUID REFERENCES identity.users(id),
   question     TEXT NOT NULL,
   response     TEXT,
-  evidence_document_id UUID REFERENCES documents.documents(id),
+  evidence_document_id UUID,
   responded_by UUID REFERENCES identity.users(id),
   responded_at TIMESTAMPTZ,
   sla_due_at   TIMESTAMPTZ,
@@ -983,7 +987,10 @@ CREATE TABLE quality.rfis (
   created_by   UUID REFERENCES identity.users(id),
   updated_by   UUID REFERENCES identity.users(id),
   version      INTEGER NOT NULL DEFAULT 1,
-  archived_at  TIMESTAMPTZ
+  archived_at  TIMESTAMPTZ,
+  CONSTRAINT fk_rfi_evidence_project
+    FOREIGN KEY (evidence_document_id, project_id)
+    REFERENCES documents.documents(id, project_id)
 );
 
 -- NCR: promoted to a first-class object per audit finding.
@@ -995,7 +1002,7 @@ CREATE TABLE quality.ncrs (
   severity            TEXT NOT NULL CHECK (severity IN ('minor','major','critical')),
   description          TEXT NOT NULL,
   corrective_action    TEXT,
-  evidence_document_id UUID REFERENCES documents.documents(id),
+  evidence_document_id UUID,
   closed_by             UUID REFERENCES identity.users(id),
   closed_at             TIMESTAMPTZ,
   reinspection_id      UUID,
@@ -1010,7 +1017,10 @@ CREATE TABLE quality.ncrs (
   FOREIGN KEY (inspection_id, project_id) REFERENCES quality.inspections(id, project_id),
   FOREIGN KEY (schedule_activity_id, project_id)
     REFERENCES construction.schedule_activities(id, project_id),
-  FOREIGN KEY (reinspection_id, project_id) REFERENCES quality.inspections(id, project_id)
+  FOREIGN KEY (reinspection_id, project_id) REFERENCES quality.inspections(id, project_id),
+  CONSTRAINT fk_ncr_evidence_project
+    FOREIGN KEY (evidence_document_id, project_id)
+    REFERENCES documents.documents(id, project_id)
 );
 
 -- Discrepancy case remains distinct: used specifically for quantity variances (Blueprint §9).
@@ -1020,7 +1030,7 @@ CREATE TABLE quality.discrepancy_cases (
   quantity_item_id  UUID,
   description       TEXT,
   evidence_ref      JSONB,
-  evidence_document_id UUID REFERENCES documents.documents(id),
+  evidence_document_id UUID,
   resolved_by       UUID REFERENCES identity.users(id),
   resolved_at       TIMESTAMPTZ,
   proposed_resolution TEXT,
@@ -1033,7 +1043,10 @@ CREATE TABLE quality.discrepancy_cases (
   version           INTEGER NOT NULL DEFAULT 1,
   archived_at       TIMESTAMPTZ,
   FOREIGN KEY (quantity_item_id, project_id)
-    REFERENCES quantities.quantity_items(id, project_id)
+    REFERENCES quantities.quantity_items(id, project_id),
+  CONSTRAINT fk_discrepancy_evidence_project
+    FOREIGN KEY (evidence_document_id, project_id)
+    REFERENCES documents.documents(id, project_id)
 );
 
 CREATE INDEX idx_inspections_project ON quality.inspections(project_id);

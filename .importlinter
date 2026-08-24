@@ -280,7 +280,7 @@ forbidden_modules =
 allow_indirect_imports = true
 
 [importlinter:contract:change-control-independent]
-name = Change control depends only on Identity contracts and platform services
+name = Change control depends only on Identity, Documents, and Construction contracts
 type = forbidden
 source_modules =
     atlas.modules.change_control
@@ -292,7 +292,8 @@ forbidden_modules =
     atlas.modules.land
     atlas.modules.compliance
     atlas.modules.commercial
-    atlas.modules.construction
+    atlas.modules.construction.models
+    atlas.modules.construction.service
     atlas.modules.project_controls
     atlas.modules.customer_lifecycle
 

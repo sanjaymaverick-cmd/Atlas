@@ -571,6 +571,11 @@ instance. None was introduced by Phase 11; all predate it.
   segregation of requester/reviewer/approver, required impact reviews, quorum,
   rejection/rework rules, and which transitions require fresh passkey step-up.
   The provisional service enforces requester/approver separation.
+  Integrity update 2026-08-24: the state path now includes the Blueprint's
+  schedule-impact and customer-impact reviews; transitions serialize on the
+  workflow row. Confirm that the fixed sequence, rejection availability from
+  every pre-approval stage, and terminal archive permissions match the approved
+  authority matrix.
 - [ ] Classify change descriptions, schedule/budget impacts, quotations, RFIs,
   responses, defects, corrective actions, and discrepancy explanations. Define
   least-privilege access, retention, legal hold, export, and redaction rules.
@@ -578,12 +583,27 @@ instance. None was introduced by Phase 11; all predate it.
   calculations, site photos, test reports, responses, and closure proof. Legacy
   JSON/free-form evidence references must be migrated; never store raw files,
   public URLs, credentials, signatures, or personal data in workflow JSON.
+  Provisional enforcement added 2026-08-24: every new or replacement evidence
+  ID must be active, same-project, and have a malware-cleared-or-later revision;
+  change approval and discrepancy resolution require an approved or issued
+  revision. Composite PostgreSQL constraints fail closed across all four Phase
+  7 tables. Confirm accepted revision states by evidence type, document
+  classification, expiry/revocation rules, and whether RFI/NCR closure must
+  always carry separate closure evidence. Inventory legacy cross-project rows
+  before migration `0017_phase7_workflow_integrity`; rehearse locks, failure,
+  rollback, and signed exception handling on a production-shaped copy.
 - [ ] Approve RFI routing and SLA policy by discipline/severity, overdue clock
   source and site timezone, reassignment/escalation rules, response authority,
   and whether a response can be superseded without a new immutable revision.
 - [ ] Approve NCR severity, regulator/client notification, corrective-action
   ownership, independent reinspection, closure authority, recurrence tracking,
   and legal-hold rules for major or critical defects.
+  Provisional closure now requires an active same-project inspection whose
+  status is `completed` and result is `pass`; the referenced inspection row is
+  locked through the published Construction contract until the transaction
+  completes. Confirm whether the reinspector must differ from the original
+  inspector, NCR raiser, corrective-action owner, and closer, and whether failed
+  reinspections create a new NCR or another immutable reinspection attempt.
 - [ ] Approve quantity discrepancy thresholds, required engineering/commercial
   reviewers, owner-approval triggers, resolution authority, and linkage to
   budgets, procurement, contracts, and change requests. No automatic financial
@@ -591,6 +611,13 @@ instance. None was introduced by Phase 11; all predate it.
 - [ ] Decide notification recipients and message minimization. Email/SMS/push
   notifications must contain opaque workflow IDs and safe summaries only, with
   no confidential narrative, evidence URL, token, or personal information.
+- [ ] Approve retention and archival policy for closed/rejected changes, closed
+  RFIs/NCRs, and resolved discrepancies. The provisional API archives only
+  terminal records, is idempotent, increments version once, writes one minimized
+  audit event, and never deletes the business row. Confirm retention periods,
+  legal-hold overrides, restoration policy, export treatment, and production
+  role assignments for `change.archive`, `quality.rfi.archive`,
+  `quality.ncr.archive`, and `quality.discrepancy.archive`.
 
 ## Phase 8 — Customer booking, collections, registration, possession, and e-sign
 

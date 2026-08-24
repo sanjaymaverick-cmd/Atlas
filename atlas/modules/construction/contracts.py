@@ -161,6 +161,9 @@ class ConstructionContract(Protocol):
     async def list_inspections(
         self, session: AsyncSession, *, actor_user_id: UUID, project_id: UUID
     ) -> list[InspectionSummary]: ...
+    async def get_inspection_for_reference(
+        self, session: AsyncSession, *, actor_user_id: UUID, inspection_id: UUID
+    ) -> InspectionSummary: ...
     async def list_snags(
         self, session: AsyncSession, *, actor_user_id: UUID, project_id: UUID
     ) -> list[SnagSummary]: ...

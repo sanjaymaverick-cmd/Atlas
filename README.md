@@ -15,7 +15,7 @@ current state, environment setup, verified gates, known-broken items, and the
 ordered list of what to do next. `docs/production-readiness-todo.md` is the
 register of every decision the owner must sign off before go-live.
 
-As of 2026-08-24 the full suite passes **465 tests with zero skips** against the
+As of 2026-08-24 the full suite passes **488 tests with zero skips** against the
 local PostgreSQL 16 test database. The original 38 PostgreSQL integration tests
 first passed on 2026-08-18.
 They had never executed: `db/schema.sql` could not be applied to an empty
@@ -93,7 +93,7 @@ passed; CI always runs them against PostgreSQL 16.
 
 ### Next
 
-Continue the phase-by-phase service integrity audit with Phase 7. Real
+Continue the phase-by-phase service integrity audit with Phase 8. Real
 WebAuthn UAT, encrypted production object storage, malware-scanner
 selection, staging, and DR provisioning remain pre-launch gates tracked in
 `docs/production-readiness-todo.md`.
@@ -221,8 +221,12 @@ approval must be attributed to different users.
 Phase 7 operations cover change requests, RFIs, NCRs, and quantity discrepancy
 cases under `/api/v1`. The workflows enforce ordered transitions, controlled
 Documents evidence, decision attribution, routed-recipient responses, and
-reinspection before NCR closure. Confidential narrative fields are not copied
-into audit payloads or notification infrastructure.
+an active completed passing reinspection before NCR closure. The change path
+includes the Blueprint-required schedule-impact and customer-impact reviews;
+transitions are row-locked, evidence references are database-scoped to their
+project, and terminal records support idempotent audited archival. Confidential
+narrative fields are not copied into audit payloads or notification
+infrastructure.
 
 Phase 8 operations cover bookings, payment plans/installments, collections and
 allocation, registration, possession, and executed customer-contract linkage

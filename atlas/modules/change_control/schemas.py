@@ -26,6 +26,7 @@ class ChangeSummary:
     decided_by: UUID | None
     decided_at: datetime | None
     version: int
+    archived_at: datetime | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +54,7 @@ class RfiSummary:
     responded_by: UUID | None
     responded_at: datetime | None
     version: int
+    archived_at: datetime | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +86,7 @@ class NcrSummary:
     closed_by: UUID | None
     closed_at: datetime | None
     version: int
+    archived_at: datetime | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,3 +114,4 @@ class DiscrepancySummary:
     resolved_by: UUID | None
     resolved_at: datetime | None
     version: int
+    archived_at: datetime | None

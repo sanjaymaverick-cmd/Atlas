@@ -10,7 +10,7 @@ and an explicit rollback is proved to remove both the parcel and its audit
 event. This closes that invariant for Phase 3 only; it does not imply the same
 coverage for Phases 4-10.
 
-The latest post-change full suite passed on 2026-08-24 with **465 tests and zero
+The latest post-change full suite passed on 2026-08-24 with **488 tests and zero
 skips** against the real disposable PostgreSQL 16 database. This count includes newer
 authenticated read/UI and phase-specific service coverage added after the
 original 2026-08-18 count below.
@@ -229,6 +229,23 @@ rest are still open, and they are the ones that matter for a sign-off.
   transfers, wastage, unit conversion, parser sandboxing, and production asset
   master linkage remain owner/production work rather than silently selected
   behavior.
+- **Phase 7** — migration `0017_phase7_workflow_integrity` and canonical DDL
+  restore the Blueprint-required schedule-impact and customer-impact stages and
+  replace four document-only foreign keys with composite document/project
+  constraints. Direct-SQL PostgreSQL tests prove change, RFI, NCR, and
+  discrepancy evidence cannot cross project scope even when services are
+  bypassed. Published Documents-contract tests prove cross-project and draft
+  evidence fail before mutation, while approval/resolution require an approved
+  or issued revision. Every transition row-locks; a two-session test proves one
+  winner and rollback tests preserve state/version/audit atomicity. NCR closure
+  locks and resolves its reinspection through the published Construction
+  contract and accepts only an active, completed, passing inspection in the
+  same project. All four creation paths commit or roll back with their single
+  privacy-minimized audit event. Terminal archival is permission-scoped,
+  row-locked, idempotent, versioned, audited, exposed through thin HTTP routes,
+  and hidden from list reads. The exact owner authority, evidence-state,
+  reinspector-independence, SLA, and escalation policies remain pre-live
+  decisions rather than hard-coded assumptions.
 - **Phase 8** — active-unit double booking, installment-total over-allocation,
   and collection-to-installment over-allocation are now covered against
   PostgreSQL. Concurrent installment additions are serialized on the payment

@@ -50,6 +50,7 @@ class ChangeResponse(DtoResponse):
     decided_by: UUID | None
     decided_at: datetime | None
     version: int
+    archived_at: datetime | None
 
 
 class RfiRequest(BaseModel):
@@ -81,6 +82,7 @@ class RfiSummaryResponse(DtoResponse):
     responded_by: UUID | None
     responded_at: datetime | None
     version: int
+    archived_at: datetime | None
 
 
 class NcrRequest(BaseModel):
@@ -116,6 +118,7 @@ class NcrResponse(DtoResponse):
     closed_by: UUID | None
     closed_at: datetime | None
     version: int
+    archived_at: datetime | None
 
 
 class DiscrepancyRequest(BaseModel):
@@ -147,3 +150,4 @@ class DiscrepancyResponse(DtoResponse):
     resolved_by: UUID | None
     resolved_at: datetime | None
     version: int
+    archived_at: datetime | None

@@ -49,6 +49,9 @@ class SessionStub:
     async def get(self, model: object, key: UUID) -> object | None:
         return self.row
 
+    async def scalar(self, statement: object) -> object | None:
+        return self.row
+
 
 def service() -> ChangeControlService:
     return ChangeControlService(cast(IdentityContract, IdentityStub()))

@@ -1628,6 +1628,22 @@ class ConstructionService:
         )
         return [inspection_summary(row) for row in result.scalars()]
 
+    async def get_inspection_for_reference(
+        self, session: AsyncSession, *, actor_user_id: UUID, inspection_id: UUID
+    ) -> InspectionSummary:
+        row = await session.scalar(
+            select(Inspection).where(Inspection.id == inspection_id).with_for_update()
+        )
+        if row is None or row.archived_at is not None:
+            raise ConstructionNotFoundError(f"inspection {inspection_id} does not exist")
+        await self._require(
+            session,
+            actor=actor_user_id,
+            permission=PERM_QUALITY_READ,
+            project_id=row.project_id,
+        )
+        return inspection_summary(row)
+
     async def list_snags(
         self, session: AsyncSession, *, actor_user_id: UUID, project_id: UUID
     ) -> list[SnagSummary]:

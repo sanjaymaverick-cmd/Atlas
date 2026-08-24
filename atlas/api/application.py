@@ -113,7 +113,7 @@ def create_app(
     change_control = (
         change_control_service
         if change_control_service is not None
-        else ChangeControlService(identity)
+        else ChangeControlService(identity, documents, construction)
     )
     customer_lifecycle = (
         customer_lifecycle_service

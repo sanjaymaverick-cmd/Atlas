@@ -28,6 +28,18 @@ from atlas.modules.change_control.schemas import (
     RfiResponse,
     RfiSummary,
 )
+from atlas.modules.construction.contracts import (
+    ConstructionConflictError,
+    ConstructionContract,
+    ConstructionNotAuthorisedError,
+    ConstructionNotFoundError,
+)
+from atlas.modules.documents.contracts import (
+    DocumentConflictError,
+    DocumentNotAuthorisedError,
+    DocumentNotFoundError,
+    DocumentsContract,
+)
 from atlas.modules.identity.contracts import IdentityContract
 from atlas.platform.audit.writer import record_event
 
@@ -40,6 +52,8 @@ CHANGE_PATH = (
     "budget_impact",
     "procurement_impact",
     "contract_impact",
+    "schedule_impact",
+    "customer_impact",
     "commercial_quotation",
     "approved",
     "implemented",
@@ -73,7 +87,14 @@ DISCREPANCY_TRANSITIONS = {
 
 def change_summary(r: ChangeRequest) -> ChangeSummary:
     return ChangeSummary(
-        r.id, r.project_id, r.status, r.evidence_document_id, r.decided_by, r.decided_at, r.version
+        r.id,
+        r.project_id,
+        r.status,
+        r.evidence_document_id,
+        r.decided_by,
+        r.decided_at,
+        r.version,
+        r.archived_at,
     )
 
 
@@ -87,6 +108,7 @@ def rfi_summary(r: Rfi) -> RfiSummary:
         r.responded_by,
         r.responded_at,
         r.version,
+        r.archived_at,
     )
 
 
@@ -101,6 +123,7 @@ def ncr_summary(r: Ncr) -> NcrSummary:
         r.closed_by,
         r.closed_at,
         r.version,
+        r.archived_at,
     )
 
 
@@ -114,6 +137,7 @@ def discrepancy_summary(r: DiscrepancyCase) -> DiscrepancySummary:
         r.resolved_by,
         r.resolved_at,
         r.version,
+        r.archived_at,
     )
 
 
@@ -121,8 +145,15 @@ PERM_READ = "change.read"
 
 
 class ChangeControlService:
-    def __init__(self, identity: IdentityContract) -> None:
+    def __init__(
+        self,
+        identity: IdentityContract,
+        documents: DocumentsContract | None = None,
+        construction: ConstructionContract | None = None,
+    ) -> None:
         self._identity = identity
+        self._documents = documents
+        self._construction = construction
 
     async def _require(self, s: AsyncSession, actor: UUID, permission: str, project: UUID) -> None:
         if not await self._identity.check_scoped_role(
@@ -152,12 +183,86 @@ class ChangeControlService:
             after_state=after,
         )
 
+    async def _require_evidence(
+        self,
+        s: AsyncSession,
+        *,
+        actor_user_id: UUID,
+        project_id: UUID,
+        document_id: UUID,
+        accepted_revision_statuses: frozenset[str],
+    ) -> None:
+        if self._documents is None:
+            raise ChangeControlConflictError("controlled evidence verification is unavailable")
+        try:
+            document = await self._documents.get_document(
+                s, actor_user_id=actor_user_id, document_id=document_id
+            )
+            revisions = await self._documents.list_revisions(
+                s, actor_user_id=actor_user_id, document_id=document_id
+            )
+        except (DocumentConflictError, DocumentNotAuthorisedError, DocumentNotFoundError) as exc:
+            raise ChangeControlConflictError("controlled evidence is unavailable") from exc
+        if (
+            document.project_id != project_id
+            or document.archived_at is not None
+            or not any(revision.status in accepted_revision_statuses for revision in revisions)
+        ):
+            raise ChangeControlConflictError(
+                "controlled evidence must be active, in project, and in an accepted revision state"
+            )
+
+    async def _archive_row(
+        self,
+        s: AsyncSession,
+        *,
+        actor_user_id: UUID,
+        row: ChangeRequest | Rfi | Ncr | DiscrepancyCase,
+        permission: str,
+        schema: str,
+        table: str,
+        terminal_statuses: frozenset[str],
+        label: str,
+    ) -> None:
+        await self._require(s, actor_user_id, permission, row.project_id)
+        if row.archived_at is not None:
+            return
+        if row.status not in terminal_statuses:
+            raise ChangeControlConflictError(f"only a terminal {label} may be archived")
+        before = {"version": row.version, "archived_at": None}
+        now = datetime.now(UTC)
+        row.archived_at = now
+        row.updated_at = now
+        row.updated_by = actor_user_id
+        row.version += 1
+        await s.flush()
+        await self._audit(
+            s,
+            actor_user_id,
+            schema,
+            table,
+            row.id,
+            "archive",
+            before,
+            {"version": row.version, "archived_at": row.archived_at},
+        )
+
     async def create_change(
         self, s: AsyncSession, *, actor_user_id: UUID, data: ChangeCreate
     ) -> ChangeSummary:
         await self._require(s, actor_user_id, "change.create", data.project_id)
         if data.budget_impact is not None and data.budget_impact < 0:
             raise ChangeControlConflictError("budget impact may not be negative")
+        if data.evidence_document_id is not None:
+            await self._require_evidence(
+                s,
+                actor_user_id=actor_user_id,
+                project_id=data.project_id,
+                document_id=data.evidence_document_id,
+                accepted_revision_statuses=frozenset(
+                    {"virus_scanned", "under_review", "approved", "issued"}
+                ),
+            )
         now = datetime.now(UTC)
         row = ChangeRequest(
             id=uuid4(),
@@ -203,13 +308,17 @@ class ChangeControlService:
     async def transition_change(
         self, s: AsyncSession, *, actor_user_id: UUID, change_id: UUID, target_status: str
     ) -> ChangeSummary:
-        row = await s.get(ChangeRequest, change_id)
+        row = await s.scalar(
+            select(ChangeRequest).where(ChangeRequest.id == change_id).with_for_update()
+        )
         if row is None:
             raise ChangeControlNotFoundError(f"change {change_id} does not exist")
         permission = (
             "change.decide" if target_status in {"approved", "rejected"} else "change.transition"
         )
         await self._require(s, actor_user_id, permission, row.project_id)
+        if row.archived_at is not None:
+            raise ChangeControlConflictError("archived change cannot transition")
         if target_status not in CHANGE_TRANSITIONS.get(row.status, frozenset()):
             raise ChangeControlConflictError(
                 f"change cannot move from {row.status} to {target_status}"
@@ -219,6 +328,14 @@ class ChangeControlService:
         if target_status == "approved" and row.requested_by == actor_user_id:
             raise ChangeControlNotAuthorisedError(
                 "change requester may not approve their own change"
+            )
+        if target_status == "approved" and row.evidence_document_id is not None:
+            await self._require_evidence(
+                s,
+                actor_user_id=actor_user_id,
+                project_id=row.project_id,
+                document_id=row.evidence_document_id,
+                accepted_revision_statuses=frozenset({"approved", "issued"}),
             )
         before = {"status": row.status, "version": row.version}
         row.status = target_status
@@ -249,6 +366,16 @@ class ChangeControlService:
         self, s: AsyncSession, *, actor_user_id: UUID, data: RfiCreate
     ) -> RfiSummary:
         await self._require(s, actor_user_id, "quality.rfi.create", data.project_id)
+        if data.evidence_document_id is not None:
+            await self._require_evidence(
+                s,
+                actor_user_id=actor_user_id,
+                project_id=data.project_id,
+                document_id=data.evidence_document_id,
+                accepted_revision_statuses=frozenset(
+                    {"virus_scanned", "under_review", "approved", "issued"}
+                ),
+            )
         now = datetime.now(UTC)
         status = "routed" if data.routed_to else "raised"
         row = Rfi(
@@ -296,14 +423,26 @@ class ChangeControlService:
     async def respond_rfi(
         self, s: AsyncSession, *, actor_user_id: UUID, rfi_id: UUID, data: RfiResponse
     ) -> RfiSummary:
-        row = await s.get(Rfi, rfi_id)
+        row = await s.scalar(select(Rfi).where(Rfi.id == rfi_id).with_for_update())
         if row is None:
             raise ChangeControlNotFoundError(f"RFI {rfi_id} does not exist")
         await self._require(s, actor_user_id, "quality.rfi.respond", row.project_id)
+        if row.archived_at is not None:
+            raise ChangeControlConflictError("archived RFI cannot be responded to")
         if row.status not in {"routed", "overdue"}:
             raise ChangeControlConflictError("RFI cannot be responded to in its current state")
         if row.routed_to is not None and row.routed_to != actor_user_id:
             raise ChangeControlNotAuthorisedError("only routed recipient may respond")
+        if data.evidence_document_id is not None:
+            await self._require_evidence(
+                s,
+                actor_user_id=actor_user_id,
+                project_id=row.project_id,
+                document_id=data.evidence_document_id,
+                accepted_revision_statuses=frozenset(
+                    {"virus_scanned", "under_review", "approved", "issued"}
+                ),
+            )
         before = {"status": row.status, "version": row.version}
         row.response = data.response
         row.evidence_document_id = data.evidence_document_id or row.evidence_document_id
@@ -336,7 +475,7 @@ class ChangeControlService:
     async def transition_rfi(
         self, s: AsyncSession, *, actor_user_id: UUID, rfi_id: UUID, target_status: str
     ) -> RfiSummary:
-        row = await s.get(Rfi, rfi_id)
+        row = await s.scalar(select(Rfi).where(Rfi.id == rfi_id).with_for_update())
         if row is None:
             raise ChangeControlNotFoundError(f"RFI {rfi_id} does not exist")
         await self._require(
@@ -345,6 +484,8 @@ class ChangeControlService:
             "quality.rfi.close" if target_status == "closed" else "quality.rfi.transition",
             row.project_id,
         )
+        if row.archived_at is not None:
+            raise ChangeControlConflictError("archived RFI cannot transition")
         if target_status not in RFI_TRANSITIONS.get(row.status, frozenset()):
             raise ChangeControlConflictError(
                 f"RFI cannot move from {row.status} to {target_status}"
@@ -375,6 +516,16 @@ class ChangeControlService:
         await self._require(s, actor_user_id, "quality.ncr.create", data.project_id)
         if data.severity not in {"minor", "major", "critical"}:
             raise ChangeControlConflictError("NCR severity is invalid")
+        if data.evidence_document_id is not None:
+            await self._require_evidence(
+                s,
+                actor_user_id=actor_user_id,
+                project_id=data.project_id,
+                document_id=data.evidence_document_id,
+                accepted_revision_statuses=frozenset(
+                    {"virus_scanned", "under_review", "approved", "issued"}
+                ),
+            )
         now = datetime.now(UTC)
         row = Ncr(
             id=uuid4(),
@@ -422,7 +573,7 @@ class ChangeControlService:
     async def transition_ncr(
         self, s: AsyncSession, *, actor_user_id: UUID, ncr_id: UUID, data: NcrTransition
     ) -> NcrSummary:
-        row = await s.get(Ncr, ncr_id)
+        row = await s.scalar(select(Ncr).where(Ncr.id == ncr_id).with_for_update())
         if row is None:
             raise ChangeControlNotFoundError(f"NCR {ncr_id} does not exist")
         await self._require(
@@ -431,6 +582,8 @@ class ChangeControlService:
             "quality.ncr.close" if data.target_status == "closed" else "quality.ncr.transition",
             row.project_id,
         )
+        if row.archived_at is not None:
+            raise ChangeControlConflictError("archived NCR cannot transition")
         if data.target_status not in NCR_TRANSITIONS.get(row.status, frozenset()):
             raise ChangeControlConflictError(
                 f"NCR cannot move from {row.status} to {data.target_status}"
@@ -441,6 +594,40 @@ class ChangeControlService:
             raise ChangeControlConflictError("reinspection is required")
         if data.target_status == "closed" and row.reinspection_id is None:
             raise ChangeControlConflictError("NCR cannot close without reinspection")
+        if data.target_status == "closed" and row.reinspection_id is not None:
+            if self._construction is None:
+                raise ChangeControlConflictError("reinspection verification is unavailable")
+            try:
+                reinspection = await self._construction.get_inspection_for_reference(
+                    s,
+                    actor_user_id=actor_user_id,
+                    inspection_id=row.reinspection_id,
+                )
+            except (
+                ConstructionConflictError,
+                ConstructionNotAuthorisedError,
+                ConstructionNotFoundError,
+            ) as exc:
+                raise ChangeControlConflictError("reinspection is unavailable") from exc
+            if (
+                reinspection.project_id != row.project_id
+                or reinspection.archived_at is not None
+                or reinspection.status != "completed"
+                or reinspection.result != "pass"
+            ):
+                raise ChangeControlConflictError(
+                    "NCR closure requires an active completed passing reinspection"
+                )
+        if data.evidence_document_id is not None:
+            await self._require_evidence(
+                s,
+                actor_user_id=actor_user_id,
+                project_id=row.project_id,
+                document_id=data.evidence_document_id,
+                accepted_revision_statuses=frozenset(
+                    {"virus_scanned", "under_review", "approved", "issued"}
+                ),
+            )
         before = {"status": row.status, "version": row.version}
         row.status = data.target_status
         if data.corrective_action:
@@ -482,6 +669,16 @@ class ChangeControlService:
         self, s: AsyncSession, *, actor_user_id: UUID, data: DiscrepancyCreate
     ) -> DiscrepancySummary:
         await self._require(s, actor_user_id, "quality.discrepancy.create", data.project_id)
+        if data.evidence_document_id is not None:
+            await self._require_evidence(
+                s,
+                actor_user_id=actor_user_id,
+                project_id=data.project_id,
+                document_id=data.evidence_document_id,
+                accepted_revision_statuses=frozenset(
+                    {"virus_scanned", "under_review", "approved", "issued"}
+                ),
+            )
         now = datetime.now(UTC)
         row = DiscrepancyCase(
             id=uuid4(),
@@ -526,7 +723,9 @@ class ChangeControlService:
     async def transition_discrepancy(
         self, s: AsyncSession, *, actor_user_id: UUID, case_id: UUID, data: DiscrepancyTransition
     ) -> DiscrepancySummary:
-        row = await s.get(DiscrepancyCase, case_id)
+        row = await s.scalar(
+            select(DiscrepancyCase).where(DiscrepancyCase.id == case_id).with_for_update()
+        )
         if row is None:
             raise ChangeControlNotFoundError(f"discrepancy {case_id} does not exist")
         await self._require(
@@ -537,6 +736,8 @@ class ChangeControlService:
             else "quality.discrepancy.transition",
             row.project_id,
         )
+        if row.archived_at is not None:
+            raise ChangeControlConflictError("archived discrepancy cannot transition")
         if data.target_status not in DISCREPANCY_TRANSITIONS.get(row.status, frozenset()):
             raise ChangeControlConflictError(
                 f"discrepancy cannot move from {row.status} to {data.target_status}"
@@ -549,6 +750,19 @@ class ChangeControlService:
             and data.evidence_document_id is None
         ):
             raise ChangeControlConflictError("resolution requires controlled evidence")
+        evidence_document_id = data.evidence_document_id or row.evidence_document_id
+        if evidence_document_id is not None:
+            await self._require_evidence(
+                s,
+                actor_user_id=actor_user_id,
+                project_id=row.project_id,
+                document_id=evidence_document_id,
+                accepted_revision_statuses=(
+                    frozenset({"approved", "issued"})
+                    if data.target_status == "resolved"
+                    else frozenset({"virus_scanned", "under_review", "approved", "issued"})
+                ),
+            )
         before = {"status": row.status, "version": row.version}
         row.status = data.target_status
         if data.proposed_resolution:
@@ -579,6 +793,82 @@ class ChangeControlService:
                 "resolved_by": str(row.resolved_by) if row.resolved_by else None,
                 "version": row.version,
             },
+        )
+        return discrepancy_summary(row)
+
+    async def archive_change(
+        self, s: AsyncSession, *, actor_user_id: UUID, change_id: UUID
+    ) -> ChangeSummary:
+        row = await s.scalar(
+            select(ChangeRequest).where(ChangeRequest.id == change_id).with_for_update()
+        )
+        if row is None:
+            raise ChangeControlNotFoundError(f"change {change_id} does not exist")
+        await self._archive_row(
+            s,
+            actor_user_id=actor_user_id,
+            row=row,
+            permission="change.archive",
+            schema="construction",
+            table="change_requests",
+            terminal_statuses=frozenset({"closed", "rejected"}),
+            label="change",
+        )
+        return change_summary(row)
+
+    async def archive_rfi(
+        self, s: AsyncSession, *, actor_user_id: UUID, rfi_id: UUID
+    ) -> RfiSummary:
+        row = await s.scalar(select(Rfi).where(Rfi.id == rfi_id).with_for_update())
+        if row is None:
+            raise ChangeControlNotFoundError(f"RFI {rfi_id} does not exist")
+        await self._archive_row(
+            s,
+            actor_user_id=actor_user_id,
+            row=row,
+            permission="quality.rfi.archive",
+            schema="quality",
+            table="rfis",
+            terminal_statuses=frozenset({"closed"}),
+            label="RFI",
+        )
+        return rfi_summary(row)
+
+    async def archive_ncr(
+        self, s: AsyncSession, *, actor_user_id: UUID, ncr_id: UUID
+    ) -> NcrSummary:
+        row = await s.scalar(select(Ncr).where(Ncr.id == ncr_id).with_for_update())
+        if row is None:
+            raise ChangeControlNotFoundError(f"NCR {ncr_id} does not exist")
+        await self._archive_row(
+            s,
+            actor_user_id=actor_user_id,
+            row=row,
+            permission="quality.ncr.archive",
+            schema="quality",
+            table="ncrs",
+            terminal_statuses=frozenset({"closed"}),
+            label="NCR",
+        )
+        return ncr_summary(row)
+
+    async def archive_discrepancy(
+        self, s: AsyncSession, *, actor_user_id: UUID, case_id: UUID
+    ) -> DiscrepancySummary:
+        row = await s.scalar(
+            select(DiscrepancyCase).where(DiscrepancyCase.id == case_id).with_for_update()
+        )
+        if row is None:
+            raise ChangeControlNotFoundError(f"discrepancy {case_id} does not exist")
+        await self._archive_row(
+            s,
+            actor_user_id=actor_user_id,
+            row=row,
+            permission="quality.discrepancy.archive",
+            schema="quality",
+            table="discrepancy_cases",
+            terminal_statuses=frozenset({"resolved"}),
+            label="discrepancy",
         )
         return discrepancy_summary(row)
 

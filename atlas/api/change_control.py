@@ -147,6 +147,48 @@ async def transition_discrepancy(
     )
 
 
+@router.post("/change-requests/{change_id}/archive", response_model=ChangeResponse)
+async def archive_change(
+    change_id: UUID, actor: Actor, session: Db, services: Services
+) -> ChangeResponse:
+    return ChangeResponse.from_dto(
+        await services.change_control.archive_change(
+            session, actor_user_id=actor.user_id, change_id=change_id
+        )
+    )
+
+
+@router.post("/rfis/{rfi_id}/archive", response_model=RfiSummaryResponse)
+async def archive_rfi(
+    rfi_id: UUID, actor: Actor, session: Db, services: Services
+) -> RfiSummaryResponse:
+    return RfiSummaryResponse.from_dto(
+        await services.change_control.archive_rfi(
+            session, actor_user_id=actor.user_id, rfi_id=rfi_id
+        )
+    )
+
+
+@router.post("/ncrs/{ncr_id}/archive", response_model=NcrResponse)
+async def archive_ncr(ncr_id: UUID, actor: Actor, session: Db, services: Services) -> NcrResponse:
+    return NcrResponse.from_dto(
+        await services.change_control.archive_ncr(
+            session, actor_user_id=actor.user_id, ncr_id=ncr_id
+        )
+    )
+
+
+@router.post("/discrepancy-cases/{case_id}/archive", response_model=DiscrepancyResponse)
+async def archive_discrepancy(
+    case_id: UUID, actor: Actor, session: Db, services: Services
+) -> DiscrepancyResponse:
+    return DiscrepancyResponse.from_dto(
+        await services.change_control.archive_discrepancy(
+            session, actor_user_id=actor.user_id, case_id=case_id
+        )
+    )
+
+
 # -- reads ------------------------------------------------------------------
 # Registers for the four change-control record types. Added 2026-08-20; this
 # router previously exposed writes only.

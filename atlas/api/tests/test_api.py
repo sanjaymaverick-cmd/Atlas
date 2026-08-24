@@ -481,13 +481,29 @@ class FakeProjectControls:
 class FakeChangeControl:
     def __init__(self) -> None:
         self.calls: list[ChangeCreate] = []
+        self.archive_calls: list[UUID] = []
 
     async def create_change(
         self, session: object, *, actor_user_id: UUID, data: ChangeCreate
     ) -> ChangeSummary:
         self.calls.append(data)
         return ChangeSummary(
-            uuid4(), data.project_id, "requested", data.evidence_document_id, None, None, 1
+            uuid4(), data.project_id, "requested", data.evidence_document_id, None, None, 1, None
+        )
+
+    async def archive_change(
+        self, session: object, *, actor_user_id: UUID, change_id: UUID
+    ) -> ChangeSummary:
+        self.archive_calls.append(change_id)
+        return ChangeSummary(
+            change_id,
+            PROJECT_ID,
+            "closed",
+            None,
+            actor_user_id,
+            datetime.now(UTC),
+            2,
+            datetime.now(UTC),
         )
 
 
@@ -1064,6 +1080,18 @@ async def test_phase7_change_route_is_thin_and_rejects_unknown_fields() -> None:
     assert accepted.status_code == 201
     assert changes.calls[0].evidence_document_id == evidence_id
     assert rejected.status_code == 422
+    assert sessions.sessions[0].commits == 1
+
+
+async def test_phase7_archive_route_is_thin() -> None:
+    changes = FakeChangeControl()
+    client, _, sessions = build_client(change_control=changes)
+    change_id = uuid4()
+    async with client:
+        response = await client.post(f"/api/v1/change-requests/{change_id}/archive")
+    assert response.status_code == 200
+    assert response.json()["archived_at"] is not None
+    assert changes.archive_calls == [change_id]
     assert sessions.sessions[0].commits == 1
 
 
