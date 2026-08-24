@@ -689,6 +689,10 @@ instance. None was introduced by Phase 11; all predate it.
 
 ## Phase 9 — Tally import and reconciliation
 
+- [ ] Review and approve the primary-source comparison and Tally migration plan
+  in `docs/accounting-integration-alternatives.md`. Its provisional recommendation
+  is an ERPNext + India Compliance proof of concept, with Tryton as the cleanest
+  technical fallback and Odoo Community gated on an exact edition/licence audit.
 - [ ] Decide whether Phase 9 integrates Tally, ERPNext, or another accounting
   system. ERPNext is provisionally an external/self-hosted accounting system
   behind an Atlas finance adapter, not a replacement for Atlas's PostgreSQL
