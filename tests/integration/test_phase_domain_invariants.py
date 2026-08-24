@@ -363,7 +363,7 @@ def test_phase8_a_unit_cannot_be_actively_booked_twice(db: Any) -> None:
 
 
 # --------------------------------------------------------------------------
-# Phase 9 — Tally reconciliation
+# Phase 9 — external-ledger reconciliation
 # --------------------------------------------------------------------------
 
 
@@ -371,18 +371,18 @@ def test_phase9_the_same_discrepancy_cannot_be_raised_twice(db: Any) -> None:
     """One open case per reconciliation fact, so a discrepancy is not double-counted.
 
     `uq_reconciliation_fact` folds a NULL voucher to a sentinel UUID, which is
-    what makes this hold for the missing-in-Tally case — a plain unique index
+    what makes this hold for the missing-in-ERPNext case — a plain unique index
     would treat every NULL as distinct and let duplicates through. That NULL
     path is the one exercised here.
     """
     _, entity_id = _seed_entity(db)
-    fact = {"entity_id": entity_id, "erp_reference_id": uuid4()}
+    fact = {"entity_id": entity_id, "atlas_reference_id": uuid4()}
     statement = (
         "INSERT INTO finance.reconciliations "
-        "(legal_entity_id, erp_reference_type, erp_reference_id, tally_voucher_id, "
+        "(legal_entity_id, atlas_reference_type, atlas_reference_id, external_voucher_id, "
         "discrepancy_type, status, version) "
-        "VALUES (%(entity_id)s, 'purchase_order', %(erp_reference_id)s, NULL, "
-        "'missing_in_tally', 'open', 1)"
+        "VALUES (%(entity_id)s, 'purchase_order', %(atlas_reference_id)s, NULL, "
+        "'missing_in_external_ledger', 'open', 1)"
     )
 
     db.execute(statement, fact)

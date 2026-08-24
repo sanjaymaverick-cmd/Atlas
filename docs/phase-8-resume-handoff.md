@@ -39,7 +39,7 @@ Phase 8 passed its completion gates on 2026-08-17:
 5. Alembic: `0009_phase8_customer_lifecycle` is the sole head.
 6. Canonical schema and incremental migration parity was reviewed, including equivalent `updated_at` trigger coverage.
 
-Phase 9 Tally reconciliation may now begin. The CRM build-versus-integrate question remains open and must not be silently resolved.
+Phase 9 external-ledger reconciliation may now begin. The CRM build-versus-integrate question remains open and must not be silently resolved.
 
 ## Local environment note
 

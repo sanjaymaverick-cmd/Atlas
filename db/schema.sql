@@ -1304,12 +1304,14 @@ CREATE UNIQUE INDEX uq_active_booking_unit ON customers.bookings(unit_id)
   WHERE status <> 'cancelled' AND archived_at IS NULL;
 
 -- =====================================================================
--- SCHEMA: finance   (Blueprint §16 Tally Reconciliation)
+-- SCHEMA: finance   (Blueprint §16 External Ledger and ERPNext Integration)
 -- =====================================================================
 CREATE SCHEMA IF NOT EXISTS finance;
 
-CREATE TABLE finance.tally_import_batches (
+CREATE TABLE finance.ledger_sync_batches (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  provider           TEXT NOT NULL DEFAULT 'erpnext'
+    CHECK (provider ~ '^[a-z][a-z0-9_]{1,31}$'),
   legal_entity_id    UUID NOT NULL REFERENCES organization.legal_entities(id),
   source_document_id UUID NOT NULL REFERENCES documents.documents(id),
   content_sha256     TEXT NOT NULL CHECK (content_sha256 ~ '^[0-9a-f]{64}$'),
@@ -1329,12 +1331,14 @@ CREATE TABLE finance.tally_import_batches (
   UNIQUE (legal_entity_id, content_sha256)
 );
 
-CREATE TABLE finance.tally_ledger_mappings (
+CREATE TABLE finance.ledger_account_mappings (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  provider           TEXT NOT NULL DEFAULT 'erpnext'
+    CHECK (provider ~ '^[a-z][a-z0-9_]{1,31}$'),
   legal_entity_id    UUID NOT NULL REFERENCES organization.legal_entities(id),
-  tally_ledger_name  TEXT NOT NULL,
-  erp_reference_type TEXT NOT NULL,
-  erp_reference_id   UUID NOT NULL,
+  external_account_name  TEXT NOT NULL,
+  atlas_reference_type TEXT NOT NULL,
+  atlas_reference_id   UUID NOT NULL,
   status             TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','retired')),
   created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -1342,12 +1346,12 @@ CREATE TABLE finance.tally_ledger_mappings (
   updated_by         UUID REFERENCES identity.users(id),
   version            INTEGER NOT NULL DEFAULT 1,
   archived_at        TIMESTAMPTZ,
-  UNIQUE (legal_entity_id, tally_ledger_name)
+  UNIQUE (legal_entity_id, external_account_name)
 );
 
-CREATE TABLE finance.tally_vouchers (
+CREATE TABLE finance.external_vouchers (
   id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  import_batch_id  UUID NOT NULL REFERENCES finance.tally_import_batches(id),
+  sync_batch_id  UUID NOT NULL REFERENCES finance.ledger_sync_batches(id),
   legal_entity_id  UUID NOT NULL REFERENCES organization.legal_entities(id),
   project_id       UUID REFERENCES organization.projects(id),
   external_id      TEXT NOT NULL,
@@ -1369,14 +1373,14 @@ CREATE TABLE finance.tally_vouchers (
 CREATE TABLE finance.reconciliations (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   legal_entity_id    UUID NOT NULL REFERENCES organization.legal_entities(id),
-  erp_reference_type TEXT NOT NULL,   -- 'purchase_order','contract_milestone','collection', etc.
-  erp_reference_id   UUID NOT NULL,
-  tally_voucher_id   UUID REFERENCES finance.tally_vouchers(id),
+  atlas_reference_type TEXT NOT NULL,   -- 'purchase_order','contract_milestone','collection', etc.
+  atlas_reference_id   UUID NOT NULL,
+  external_voucher_id   UUID REFERENCES finance.external_vouchers(id),
   discrepancy_type   TEXT NOT NULL CHECK (discrepancy_type IN
-    ('missing_in_tally','missing_in_erp','amount_mismatch','wrong_entity','wrong_project',
+    ('missing_in_external_ledger','missing_in_atlas','amount_mismatch','wrong_entity','wrong_project',
      'duplicate_voucher','unallocated_receipt','schedule_not_updated','obligation_still_open')),
-  erp_amount          NUMERIC(16,2) CHECK (erp_amount IS NULL OR erp_amount >= 0),
-  tally_amount        NUMERIC(16,2) CHECK (tally_amount IS NULL OR tally_amount >= 0),
+  atlas_amount          NUMERIC(16,2) CHECK (atlas_amount IS NULL OR atlas_amount >= 0),
+  external_amount        NUMERIC(16,2) CHECK (external_amount IS NULL OR external_amount >= 0),
   status             TEXT NOT NULL DEFAULT 'open'
     CHECK (status IN ('open','under_review','reconciled','accepted_exception')),
   reviewed_by        UUID REFERENCES identity.users(id),
@@ -1391,14 +1395,14 @@ CREATE TABLE finance.reconciliations (
   archived_at        TIMESTAMPTZ
 );
 
-CREATE INDEX idx_tally_batches_entity_status
-  ON finance.tally_import_batches(legal_entity_id, status);
-CREATE INDEX idx_tally_vouchers_batch ON finance.tally_vouchers(import_batch_id);
+CREATE INDEX idx_ledger_sync_batches_entity_status
+  ON finance.ledger_sync_batches(legal_entity_id, status);
+CREATE INDEX idx_external_vouchers_batch ON finance.external_vouchers(sync_batch_id);
 CREATE INDEX idx_reconciliations_entity_status
   ON finance.reconciliations(legal_entity_id, status);
 CREATE UNIQUE INDEX uq_reconciliation_fact ON finance.reconciliations(
-  erp_reference_type, erp_reference_id,
-  COALESCE(tally_voucher_id, '00000000-0000-0000-0000-000000000000'::uuid),
+  atlas_reference_type, atlas_reference_id,
+  COALESCE(external_voucher_id, '00000000-0000-0000-0000-000000000000'::uuid),
   discrepancy_type
 );
 

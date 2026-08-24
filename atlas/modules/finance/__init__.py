@@ -1,1 +1,1 @@
-"""Phase 9 Tally reconciliation module."""
+"""Phase 9 external-ledger reconciliation module."""

@@ -10,10 +10,10 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from atlas.modules.finance.schemas import (
-    ImportBatchCreate,
+    ExternalVoucherCreate,
+    LedgerSyncBatchCreate,
     ReconciliationCreate,
     ReconciliationReview,
-    VoucherCreate,
 )
 
 
@@ -23,19 +23,20 @@ class DtoResponse(BaseModel):
         return cls(**{f: getattr(value, f) for f in cls.model_fields})
 
 
-class ImportBatchRequest(BaseModel):
+class LedgerSyncBatchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     source_document_id: UUID
     content_sha256: str = Field(pattern="^[0-9a-f]{64}$")
     period_start: date | None = None
     period_end: date | None = None
 
-    def to_dto(self, legal_entity_id: UUID) -> ImportBatchCreate:
-        return ImportBatchCreate(legal_entity_id=legal_entity_id, **self.model_dump())
+    def to_dto(self, legal_entity_id: UUID) -> LedgerSyncBatchCreate:
+        return LedgerSyncBatchCreate(legal_entity_id=legal_entity_id, **self.model_dump())
 
 
-class ImportBatchResponse(DtoResponse):
+class LedgerSyncBatchResponse(DtoResponse):
     id: UUID
+    provider: str
     legal_entity_id: UUID
     source_document_id: UUID
     content_sha256: str
@@ -46,7 +47,7 @@ class ImportBatchResponse(DtoResponse):
     version: int
 
 
-class VoucherRequest(BaseModel):
+class ExternalVoucherRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     external_id: str = Field(min_length=1, max_length=200)
     voucher_type: str = Field(min_length=1, max_length=100)
@@ -57,13 +58,13 @@ class VoucherRequest(BaseModel):
     currency_code: str = Field(default="INR", pattern="^[A-Z]{3}$")
     project_id: UUID | None = None
 
-    def to_dto(self) -> VoucherCreate:
-        return VoucherCreate(**self.model_dump())
+    def to_dto(self) -> ExternalVoucherCreate:
+        return ExternalVoucherCreate(**self.model_dump())
 
 
-class VoucherResponse(DtoResponse):
+class ExternalVoucherResponse(DtoResponse):
     id: UUID
-    import_batch_id: UUID
+    sync_batch_id: UUID
     legal_entity_id: UUID
     project_id: UUID | None
     external_id: str
@@ -78,14 +79,14 @@ class VoucherResponse(DtoResponse):
 
 class ReconciliationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    erp_reference_type: str = Field(min_length=1, max_length=100)
-    erp_reference_id: UUID
+    atlas_reference_type: str = Field(min_length=1, max_length=100)
+    atlas_reference_id: UUID
     discrepancy_type: str = Field(
-        pattern="^(missing_in_tally|missing_in_erp|amount_mismatch|wrong_entity|wrong_project|duplicate_voucher|unallocated_receipt|schedule_not_updated|obligation_still_open)$"
+        pattern="^(missing_in_external_ledger|missing_in_atlas|amount_mismatch|wrong_entity|wrong_project|duplicate_voucher|unallocated_receipt|schedule_not_updated|obligation_still_open)$"
     )
-    tally_voucher_id: UUID | None = None
-    erp_amount: Decimal | None = Field(default=None, ge=0)
-    tally_amount: Decimal | None = Field(default=None, ge=0)
+    external_voucher_id: UUID | None = None
+    atlas_amount: Decimal | None = Field(default=None, ge=0)
+    external_amount: Decimal | None = Field(default=None, ge=0)
 
     def to_dto(self, legal_entity_id: UUID) -> ReconciliationCreate:
         return ReconciliationCreate(legal_entity_id=legal_entity_id, **self.model_dump())
@@ -104,12 +105,12 @@ class ReviewRequest(BaseModel):
 class ReconciliationResponse(DtoResponse):
     id: UUID
     legal_entity_id: UUID
-    erp_reference_type: str
-    erp_reference_id: UUID
-    tally_voucher_id: UUID | None
+    atlas_reference_type: str
+    atlas_reference_id: UUID
+    external_voucher_id: UUID | None
     discrepancy_type: str
-    erp_amount: Decimal | None
-    tally_amount: Decimal | None
+    atlas_amount: Decimal | None
+    external_amount: Decimal | None
     status: str
     reviewed_by: UUID | None
     reviewed_at: datetime | None

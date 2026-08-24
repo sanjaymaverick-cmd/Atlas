@@ -395,9 +395,9 @@ async def test_reconciliations_are_entity_scoped(db_session: AsyncSession) -> No
     await db_session.execute(
         text(
             "INSERT INTO finance.reconciliations "
-            "(legal_entity_id, erp_reference_type, erp_reference_id, discrepancy_type, "
+            "(legal_entity_id, atlas_reference_type, atlas_reference_id, discrepancy_type, "
             "status, version) "
-            "VALUES (:eid, 'purchase_order', :ref, 'missing_in_tally', 'open', 1)"
+            "VALUES (:eid, 'purchase_order', :ref, 'missing_in_external_ledger', 'open', 1)"
         ),
         {"eid": scope.entity_id, "ref": uuid4()},
     )

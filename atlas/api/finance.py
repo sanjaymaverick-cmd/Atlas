@@ -10,13 +10,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from atlas.api.dependencies import ApiServices, get_current_session, get_services, get_session
 from atlas.api.finance_schemas import (
-    ImportBatchRequest,
-    ImportBatchResponse,
+    ExternalVoucherRequest,
+    ExternalVoucherResponse,
+    LedgerSyncBatchRequest,
+    LedgerSyncBatchResponse,
     ReconciliationRequest,
     ReconciliationResponse,
     ReviewRequest,
-    VoucherRequest,
-    VoucherResponse,
 )
 from atlas.modules.identity.schemas import SessionContext
 
@@ -27,41 +27,45 @@ Services = Annotated[ApiServices, Depends(get_services)]
 
 
 @router.post(
-    "/legal-entities/{legal_entity_id}/tally-imports",
-    response_model=ImportBatchResponse,
+    "/legal-entities/{legal_entity_id}/ledger-sync-batches",
+    response_model=LedgerSyncBatchResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def create_import(
-    legal_entity_id: UUID, body: ImportBatchRequest, actor: Actor, session: Db, services: Services
-) -> ImportBatchResponse:
-    return ImportBatchResponse.from_dto(
-        await services.finance.create_import_batch(
+async def create_sync_batch(
+    legal_entity_id: UUID,
+    body: LedgerSyncBatchRequest,
+    actor: Actor,
+    session: Db,
+    services: Services,
+) -> LedgerSyncBatchResponse:
+    return LedgerSyncBatchResponse.from_dto(
+        await services.finance.create_sync_batch(
             session, actor_user_id=actor.user_id, data=body.to_dto(legal_entity_id)
         )
     )
 
 
-@router.post("/tally-imports/{batch_id}/validate", response_model=ImportBatchResponse)
-async def validate_import(
+@router.post("/ledger-sync-batches/{batch_id}/validate", response_model=LedgerSyncBatchResponse)
+async def validate_sync_batch(
     batch_id: UUID, actor: Actor, session: Db, services: Services
-) -> ImportBatchResponse:
-    return ImportBatchResponse.from_dto(
-        await services.finance.validate_import_batch(
+) -> LedgerSyncBatchResponse:
+    return LedgerSyncBatchResponse.from_dto(
+        await services.finance.validate_sync_batch(
             session, actor_user_id=actor.user_id, batch_id=batch_id
         )
     )
 
 
 @router.post(
-    "/tally-imports/{batch_id}/vouchers",
-    response_model=VoucherResponse,
+    "/ledger-sync-batches/{batch_id}/vouchers",
+    response_model=ExternalVoucherResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def import_voucher(
-    batch_id: UUID, body: VoucherRequest, actor: Actor, session: Db, services: Services
-) -> VoucherResponse:
-    return VoucherResponse.from_dto(
-        await services.finance.import_voucher(
+async def record_external_voucher(
+    batch_id: UUID, body: ExternalVoucherRequest, actor: Actor, session: Db, services: Services
+) -> ExternalVoucherResponse:
+    return ExternalVoucherResponse.from_dto(
+        await services.finance.record_external_voucher(
             session, actor_user_id=actor.user_id, batch_id=batch_id, data=body.to_dto()
         )
     )
@@ -105,31 +109,34 @@ async def review_reconciliation(
 
 
 @router.get(
-    "/legal-entities/{legal_entity_id}/tally-imports", response_model=list[ImportBatchResponse]
+    "/legal-entities/{legal_entity_id}/ledger-sync-batches",
+    response_model=list[LedgerSyncBatchResponse],
 )
-async def list_import_batches(
+async def list_sync_batches(
     legal_entity_id: UUID,
     actor: Annotated[SessionContext, Depends(get_current_session)],
     session: Annotated[AsyncSession, Depends(get_session)],
     services: Annotated[ApiServices, Depends(get_services)],
-) -> list[ImportBatchResponse]:
-    rows = await services.finance.list_import_batches(
+) -> list[LedgerSyncBatchResponse]:
+    rows = await services.finance.list_sync_batches(
         session, actor_user_id=actor.user_id, legal_entity_id=legal_entity_id
     )
-    return [ImportBatchResponse.from_dto(row) for row in rows]
+    return [LedgerSyncBatchResponse.from_dto(row) for row in rows]
 
 
-@router.get("/tally-imports/{batch_id}/vouchers", response_model=list[VoucherResponse])
-async def list_vouchers(
+@router.get(
+    "/ledger-sync-batches/{batch_id}/vouchers", response_model=list[ExternalVoucherResponse]
+)
+async def list_external_vouchers(
     batch_id: UUID,
     actor: Annotated[SessionContext, Depends(get_current_session)],
     session: Annotated[AsyncSession, Depends(get_session)],
     services: Annotated[ApiServices, Depends(get_services)],
-) -> list[VoucherResponse]:
-    rows = await services.finance.list_vouchers(
+) -> list[ExternalVoucherResponse]:
+    rows = await services.finance.list_external_vouchers(
         session, actor_user_id=actor.user_id, batch_id=batch_id
     )
-    return [VoucherResponse.from_dto(row) for row in rows]
+    return [ExternalVoucherResponse.from_dto(row) for row in rows]
 
 
 @router.get(

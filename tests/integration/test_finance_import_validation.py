@@ -82,7 +82,7 @@ async def _seed_pending_batch(session: AsyncSession, *, with_voucher: bool) -> t
             "INSERT INTO documents.documents "
             "(id, project_id, document_type, classification, status, created_by, "
             "updated_by, version) VALUES "
-            "(:id, :project_id, 'tally_export', 'restricted', 'approved', "
+            "(:id, :project_id, 'erpnext_export', 'restricted', 'approved', "
             ":actor_id, :actor_id, 1)"
         ),
         {"id": document_id, "project_id": project_id, "actor_id": actor_id},
@@ -97,14 +97,14 @@ async def _seed_pending_batch(session: AsyncSession, *, with_voucher: bool) -> t
         {
             "id": revision_id,
             "document_id": document_id,
-            "object_key": f"synthetic/tally/{revision_id}.xml",
+            "object_key": f"synthetic/erpnext/{revision_id}.xml",
             "checksum": "b" * 64,
             "actor_id": actor_id,
         },
     )
     await session.execute(
         text(
-            "INSERT INTO finance.tally_import_batches "
+            "INSERT INTO finance.ledger_sync_batches "
             "(id, legal_entity_id, source_document_id, content_sha256, status, "
             "validation_summary, created_by, updated_by, version) VALUES "
             "(:id, :entity_id, :document_id, :checksum, 'pending_validation', "
@@ -121,8 +121,8 @@ async def _seed_pending_batch(session: AsyncSession, *, with_voucher: bool) -> t
     if with_voucher:
         await session.execute(
             text(
-                "INSERT INTO finance.tally_vouchers "
-                "(import_batch_id, legal_entity_id, project_id, external_id, voucher_type, "
+                "INSERT INTO finance.external_vouchers "
+                "(sync_batch_id, legal_entity_id, project_id, external_id, voucher_type, "
                 "voucher_number, voucher_date, amount, ledger_reference, currency_code, "
                 "imported_at, status, created_by, updated_by, version) VALUES "
                 "(:batch_id, :entity_id, :project_id, :external_id, 'Journal', "
@@ -162,7 +162,7 @@ async def test_validation_refuses_batch_with_preexisting_vouchers(
     actor_id, batch_id = await _seed_pending_batch(async_session, with_voucher=True)
 
     with pytest.raises(FinanceConflictError, match="already contains vouchers"):
-        await FinanceService(AllowAllIdentity()).validate_import_batch(
+        await FinanceService(AllowAllIdentity()).validate_sync_batch(
             async_session, actor_user_id=actor_id, batch_id=batch_id
         )
     await async_session.rollback()
@@ -171,7 +171,7 @@ async def test_validation_refuses_batch_with_preexisting_vouchers(
         await async_session.execute(
             text(
                 "SELECT status, validation_summary, version "
-                "FROM finance.tally_import_batches WHERE id = :id"
+                "FROM finance.ledger_sync_batches WHERE id = :id"
             ),
             {"id": batch_id},
         )
@@ -185,7 +185,7 @@ async def test_validation_commits_state_and_one_valid_audit_event(
 ) -> None:
     actor_id, batch_id = await _seed_pending_batch(async_session, with_voucher=False)
 
-    validated = await FinanceService(AllowAllIdentity()).validate_import_batch(
+    validated = await FinanceService(AllowAllIdentity()).validate_sync_batch(
         async_session, actor_user_id=actor_id, batch_id=batch_id
     )
     await async_session.commit()
@@ -193,7 +193,7 @@ async def test_validation_commits_state_and_one_valid_audit_event(
     chain = await _audit_chain(async_session)
     assert validated.status == "validated" and validated.version == 2
     assert [(event.entity_schema, event.entity_table, event.action) for event in chain] == [
-        ("finance", "tally_import_batches", "validate")
+        ("finance", "ledger_sync_batches", "validate")
     ]
     assert verify_chain(chain) == 1
 
@@ -203,7 +203,7 @@ async def test_validation_rollback_removes_state_and_audit(
 ) -> None:
     actor_id, batch_id = await _seed_pending_batch(async_session, with_voucher=False)
 
-    await FinanceService(AllowAllIdentity()).validate_import_batch(
+    await FinanceService(AllowAllIdentity()).validate_sync_batch(
         async_session, actor_user_id=actor_id, batch_id=batch_id
     )
     await async_session.rollback()
@@ -212,7 +212,7 @@ async def test_validation_rollback_removes_state_and_audit(
         await async_session.execute(
             text(
                 "SELECT status, validation_summary, version "
-                "FROM finance.tally_import_batches WHERE id = :id"
+                "FROM finance.ledger_sync_batches WHERE id = :id"
             ),
             {"id": batch_id},
         )

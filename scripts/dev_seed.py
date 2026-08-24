@@ -249,9 +249,9 @@ async def seed_module_records(
     await session.execute(
         text(
             "INSERT INTO finance.reconciliations "
-            "(legal_entity_id, erp_reference_type, erp_reference_id, discrepancy_type, "
+            "(legal_entity_id, atlas_reference_type, atlas_reference_id, discrepancy_type, "
             "status, version) "
-            "VALUES (:eid, 'purchase_order', :ref, 'missing_in_tally', 'open', 1)"
+            "VALUES (:eid, 'purchase_order', :ref, 'missing_in_external_ledger', 'open', 1)"
         ),
         {"eid": entity_id, "ref": uuid4()},
     )

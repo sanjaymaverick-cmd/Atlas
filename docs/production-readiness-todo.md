@@ -687,14 +687,13 @@ instance. None was introduced by Phase 11; all predate it.
   registration, possession, and contract-link archival/retention periods still
   require legal, finance, privacy, and audit-owner sign-off before go-live.
 
-## Phase 9 — Tally import and reconciliation
+## Phase 9 — ERPNext external-ledger integration
 
-- [ ] Review and approve the primary-source comparison and Tally migration plan
+- [ ] Review and approve the primary-source comparison and ERPNext migration plan
   in `docs/accounting-integration-alternatives.md`. Its provisional recommendation
   is an ERPNext + India Compliance proof of concept, with Tryton as the cleanest
   technical fallback and Odoo Community gated on an exact edition/licence audit.
-- [ ] Decide whether Phase 9 integrates Tally, ERPNext, or another accounting
-  system. ERPNext is provisionally an external/self-hosted accounting system
+- [x] Select ERPNext as the first external/self-hosted accounting system
   behind an Atlas finance adapter, not a replacement for Atlas's PostgreSQL
   domain model, passkey/session security, scoped authorization, controlled
   Documents, or hash-chained audit. Before selection, approve system-of-record
@@ -702,10 +701,11 @@ instance. None was introduced by Phase 11; all predate it.
   least-privilege service accounts, webhook signing/replay protection,
   idempotency, reconciliation and correction semantics, availability/DR,
   upgrade compatibility, data residency, GPL-3.0 obligations, and exit/export
-  strategy. A wholesale Frappe/ERPNext rebuild requires a separate architecture,
+  strategy remain owner gates. A wholesale Frappe/ERPNext rebuild requires a separate architecture,
   security, privacy, migration, licensing, and cost review and is not authorized
   by the accounting-provider decision alone.
-- [ ] Approve the exact Tally export formats, supported Tally versions, company
+- [ ] Pin and approve the exact ERPNext/Frappe/India Compliance versions,
+  supported API resources, company
   and legal-entity mapping, fiscal periods, currency/tax treatment, and how an
   export is proven complete before a batch may be validated.
   Provisional integrity rule implemented 2026-08-23: validation locks the batch
@@ -714,7 +714,7 @@ instance. None was introduced by Phase 11; all predate it.
   races. PostgreSQL tests prove refusal leaves status, validation summary,
   version, and audit chain unchanged. Owner approval is still required for the
   authoritative completeness manifest and partial-file recovery policy.
-- [ ] Keep Tally credentials, license details, bank data, narration, party tax
+- [ ] Keep ERPNext credentials, license details, bank data, narration, party tax
   identifiers, unrestricted exports, and raw provider payloads out of source,
   logs, fixtures, HTTP bodies, and audit events. Source exports must remain in
   restricted Documents storage with approved classification and retention.
@@ -731,9 +731,20 @@ instance. None was introduced by Phase 11; all predate it.
 - [ ] Design the background import queue with authenticated job submission,
   malware/content validation, bounded parsing, idempotency, retry/backoff,
   dead-letter visibility, operator cancellation, and resource limits.
-- [ ] Decide whether any future Tally connector may be read-only or bidirectional.
-  Atlas currently has no posting capability; any write-back requires a separate
-  threat model, approval workflow, credential custody design, and owner sign-off.
+- [x] Keep the initial ERPNext adapter read-only and provider-neutral.
+- [ ] Decide whether a later ERPNext connector may become bidirectional.
+  Atlas currently has no posting capability; any write-back requires a durable
+  outbox, immutable posting receipts, idempotency verification, segregation of
+  duties, period-close and reversal behavior, plus a separate threat model,
+  approval workflow, credential custody design, and owner sign-off.
+- [ ] Approve ERPNext service-user custody, token rotation, HTTPS trust, outbound
+  network allow-list, per-environment/company isolation, request timeouts, rate
+  limits, response-size ceilings, retry budget, circuit breaker, and sanitized telemetry.
+- [ ] Validate India Compliance and every GST/e-invoice/e-way-bill dependency,
+  including GSP contracts, data residency, consent, retention, outage behavior,
+  and whether historical acknowledgements can be migrated without misstatement.
+- [ ] Approve independent Atlas/PostgreSQL and ERPNext/MariaDB backup, restore,
+  point-in-time recovery, version upgrade, warm-standby, and cross-system recovery procedures.
 
 ## Phase 10 — CEO dashboard and advanced analytics
 
@@ -749,7 +760,7 @@ instance. None was introduced by Phase 11; all predate it.
   delay, overrun, inspection, collection, compliance, and decision thresholds.
 - [ ] Classify dashboard aggregates for inference and re-identification risk.
   Restrict legal-entity/project drill-downs and prohibit party/customer identity,
-  tax IDs, bank/payment references, document text, narratives, and raw Tally
+  tax IDs, bank/payment references, document text, narratives, and raw ERPNext
   payloads from materialized views, caches, logs, URLs, and exports.
 - [ ] Approve report formats, watermarking, step-up authentication, export size
   limits, malware-safe generation, temporary storage encryption, signed-link

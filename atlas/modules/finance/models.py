@@ -24,10 +24,11 @@ class AuditColumns:
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
-class TallyImportBatch(AuditColumns, Base):
-    __tablename__ = "tally_import_batches"
+class LedgerSyncBatch(AuditColumns, Base):
+    __tablename__ = "ledger_sync_batches"
     __table_args__ = {"schema": "finance"}
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    provider: Mapped[str]
     legal_entity_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
     source_document_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
     content_sha256: Mapped[str]
@@ -38,11 +39,11 @@ class TallyImportBatch(AuditColumns, Base):
     imported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
-class TallyVoucher(Base):
-    __tablename__ = "tally_vouchers"
+class ExternalVoucher(Base):
+    __tablename__ = "external_vouchers"
     __table_args__ = {"schema": "finance"}
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
-    import_batch_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    sync_batch_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
     legal_entity_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
     project_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
     external_id: Mapped[str]
@@ -65,12 +66,12 @@ class Reconciliation(AuditColumns, Base):
     __table_args__ = {"schema": "finance"}
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
     legal_entity_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
-    erp_reference_type: Mapped[str]
-    erp_reference_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
-    tally_voucher_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    atlas_reference_type: Mapped[str]
+    atlas_reference_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    external_voucher_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
     discrepancy_type: Mapped[str]
-    erp_amount: Mapped[Decimal | None] = mapped_column(Numeric(16, 2))
-    tally_amount: Mapped[Decimal | None] = mapped_column(Numeric(16, 2))
+    atlas_amount: Mapped[Decimal | None] = mapped_column(Numeric(16, 2))
+    external_amount: Mapped[Decimal | None] = mapped_column(Numeric(16, 2))
     status: Mapped[str]
     reviewed_by: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

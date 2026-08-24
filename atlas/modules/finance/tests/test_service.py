@@ -12,8 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from atlas.modules.finance import service as service_module
 from atlas.modules.finance.contracts import FinanceConflictError
-from atlas.modules.finance.models import Reconciliation, TallyImportBatch
-from atlas.modules.finance.schemas import ImportBatchCreate, ReconciliationReview, VoucherCreate
+from atlas.modules.finance.models import LedgerSyncBatch, Reconciliation
+from atlas.modules.finance.schemas import (
+    ExternalVoucherCreate,
+    LedgerSyncBatchCreate,
+    ReconciliationReview,
+)
 from atlas.modules.finance.service import FinanceService
 from atlas.modules.identity.contracts import IdentityContract
 
@@ -59,10 +63,11 @@ async def no_audit(*args: object, **kwargs: object) -> None:
     return None
 
 
-def batch(actor: UUID) -> TallyImportBatch:
+def batch(actor: UUID) -> LedgerSyncBatch:
     now = datetime.now(UTC)
-    return TallyImportBatch(
+    return LedgerSyncBatch(
         id=uuid4(),
+        provider="erpnext",
         legal_entity_id=uuid4(),
         source_document_id=uuid4(),
         content_sha256="a" * 64,
@@ -83,10 +88,10 @@ def batch(actor: UUID) -> TallyImportBatch:
 async def test_import_batch_rejects_non_sha256_digest(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(service_module, "record_event", no_audit)
     with pytest.raises(FinanceConflictError, match="SHA-256"):
-        await service().create_import_batch(
+        await service().create_sync_batch(
             cast(AsyncSession, SessionStub()),
             actor_user_id=uuid4(),
-            data=ImportBatchCreate(uuid4(), uuid4(), "not-a-digest"),
+            data=LedgerSyncBatchCreate(uuid4(), uuid4(), "not-a-digest"),
         )
 
 
@@ -101,11 +106,11 @@ async def test_voucher_audit_redacts_ledger_and_voucher_numbers(
     monkeypatch.setattr(service_module, "record_event", audit)
     actor = uuid4()
     row = batch(actor)
-    await service().import_voucher(
-        cast(AsyncSession, SessionStub({TallyImportBatch: row})),
+    await service().record_external_voucher(
+        cast(AsyncSession, SessionStub({LedgerSyncBatch: row})),
         actor_user_id=actor,
         batch_id=row.id,
-        data=VoucherCreate(
+        data=ExternalVoucherCreate(
             "SYN-EXT-1",
             "Receipt",
             "SYN-PRIVATE-VOUCHER",
@@ -125,12 +130,12 @@ async def test_final_review_requires_resolution_code(monkeypatch: pytest.MonkeyP
     row = Reconciliation(
         id=uuid4(),
         legal_entity_id=uuid4(),
-        erp_reference_type="collection",
-        erp_reference_id=uuid4(),
-        tally_voucher_id=None,
-        discrepancy_type="missing_in_tally",
-        erp_amount=Decimal("100"),
-        tally_amount=None,
+        atlas_reference_type="collection",
+        atlas_reference_id=uuid4(),
+        external_voucher_id=None,
+        discrepancy_type="missing_in_external_ledger",
+        atlas_amount=Decimal("100"),
+        external_amount=None,
         status="under_review",
         reviewed_by=actor,
         reviewed_at=now,

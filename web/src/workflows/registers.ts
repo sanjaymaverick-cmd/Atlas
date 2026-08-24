@@ -263,16 +263,16 @@ export const REGISTERS: Record<string, Register[]> = {
   "Phase 9": [
     {
       key: "batches",
-      title: "Tally import batches",
+      title: "Ledger sync batches",
       scope: "entity",
-      path: (s) => `/api/v1/legal-entities/${s.entity}/tally-imports`,
+      path: (s) => `/api/v1/legal-entities/${s.entity}/ledger-sync-batches`,
       columns: [
         { header: "Period start", field: "period_start", kind: "date" },
         { header: "Period end", field: "period_end", kind: "date" },
         { header: "SHA-256", field: "content_sha256", kind: "mono" },
         STATUS,
       ],
-      empty: "No Tally exports registered.",
+      empty: "No external-ledger sync batches registered.",
       note: "The export itself stays in a restricted Documents record; only its provenance hash appears here.",
     },
     {
@@ -282,8 +282,8 @@ export const REGISTERS: Record<string, Register[]> = {
       path: (s) => `/api/v1/legal-entities/${s.entity}/reconciliations`,
       columns: [
         { header: "Type", field: "discrepancy_type", kind: "pill" },
-        { header: "ERP amount", field: "erp_amount", kind: "amount" },
-        { header: "Tally amount", field: "tally_amount", kind: "amount" },
+        { header: "ERP amount", field: "atlas_amount", kind: "amount" },
+        { header: "External amount", field: "external_amount", kind: "amount" },
         { header: "Resolution", field: "resolution_code", kind: "mono" },
         STATUS,
       ],

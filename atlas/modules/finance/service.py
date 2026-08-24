@@ -1,4 +1,4 @@
-"""Audited Phase 9 Tally reconciliation workflows."""
+"""Audited Phase 9 external-ledger reconciliation workflows."""
 
 from __future__ import annotations
 
@@ -15,23 +15,23 @@ from atlas.modules.finance.contracts import (
     FinanceNotAuthorisedError,
     FinanceNotFoundError,
 )
-from atlas.modules.finance.models import Reconciliation, TallyImportBatch, TallyVoucher
+from atlas.modules.finance.models import ExternalVoucher, LedgerSyncBatch, Reconciliation
 from atlas.modules.finance.schemas import (
-    ImportBatchCreate,
-    ImportBatchSummary,
+    ExternalVoucherCreate,
+    ExternalVoucherSummary,
+    LedgerSyncBatchCreate,
+    LedgerSyncBatchSummary,
     ReconciliationCreate,
     ReconciliationReview,
     ReconciliationSummary,
-    VoucherCreate,
-    VoucherSummary,
 )
 from atlas.modules.identity.contracts import IdentityContract
 from atlas.platform.audit.writer import record_event
 
 DISCREPANCIES = frozenset(
     {
-        "missing_in_tally",
-        "missing_in_erp",
+        "missing_in_external_ledger",
+        "missing_in_atlas",
         "amount_mismatch",
         "wrong_entity",
         "wrong_project",
@@ -47,9 +47,10 @@ REVIEW_TRANSITIONS = {
 }
 
 
-def batch_summary(row: TallyImportBatch) -> ImportBatchSummary:
-    return ImportBatchSummary(
+def batch_summary(row: LedgerSyncBatch) -> LedgerSyncBatchSummary:
+    return LedgerSyncBatchSummary(
         row.id,
+        row.provider,
         row.legal_entity_id,
         row.source_document_id,
         row.content_sha256,
@@ -61,10 +62,10 @@ def batch_summary(row: TallyImportBatch) -> ImportBatchSummary:
     )
 
 
-def voucher_summary(row: TallyVoucher) -> VoucherSummary:
-    return VoucherSummary(
+def voucher_summary(row: ExternalVoucher) -> ExternalVoucherSummary:
+    return ExternalVoucherSummary(
         row.id,
-        row.import_batch_id,
+        row.sync_batch_id,
         row.legal_entity_id,
         row.project_id,
         row.external_id,
@@ -82,12 +83,12 @@ def reconciliation_summary(row: Reconciliation) -> ReconciliationSummary:
     return ReconciliationSummary(
         row.id,
         row.legal_entity_id,
-        row.erp_reference_type,
-        row.erp_reference_id,
-        row.tally_voucher_id,
+        row.atlas_reference_type,
+        row.atlas_reference_id,
+        row.external_voucher_id,
         row.discrepancy_type,
-        row.erp_amount,
-        row.tally_amount,
+        row.atlas_amount,
+        row.external_amount,
         row.status,
         row.reviewed_by,
         row.reviewed_at,
@@ -130,27 +131,28 @@ class FinanceService:
             after_state=after,
         )
 
-    async def _batch(self, s: AsyncSession, batch_id: UUID) -> TallyImportBatch:
+    async def _batch(self, s: AsyncSession, batch_id: UUID) -> LedgerSyncBatch:
         row = await s.scalar(
-            select(TallyImportBatch).where(TallyImportBatch.id == batch_id).with_for_update()
+            select(LedgerSyncBatch).where(LedgerSyncBatch.id == batch_id).with_for_update()
         )
         if row is None or row.archived_at is not None:
-            raise FinanceNotFoundError(f"Tally import batch {batch_id} does not exist")
+            raise FinanceNotFoundError(f"ledger sync batch {batch_id} does not exist")
         return row
 
-    async def create_import_batch(
-        self, s: AsyncSession, *, actor_user_id: UUID, data: ImportBatchCreate
-    ) -> ImportBatchSummary:
-        await self._require(s, actor_user_id, "finance.tally.import", data.legal_entity_id)
+    async def create_sync_batch(
+        self, s: AsyncSession, *, actor_user_id: UUID, data: LedgerSyncBatchCreate
+    ) -> LedgerSyncBatchSummary:
+        await self._require(s, actor_user_id, "finance.ledger.sync", data.legal_entity_id)
         if len(data.content_sha256) != 64 or any(
             c not in "0123456789abcdef" for c in data.content_sha256
         ):
             raise FinanceConflictError("content digest must be lowercase SHA-256")
         if data.period_start and data.period_end and data.period_end < data.period_start:
-            raise FinanceConflictError("import period end precedes start")
+            raise FinanceConflictError("sync period end precedes start")
         now = datetime.now(UTC)
-        row = TallyImportBatch(
+        row = LedgerSyncBatch(
             id=uuid4(),
+            provider="erpnext",
             legal_entity_id=data.legal_entity_id,
             source_document_id=data.source_document_id,
             content_sha256=data.content_sha256,
@@ -170,11 +172,13 @@ class FinanceService:
         try:
             await s.flush()
         except IntegrityError as exc:
-            raise FinanceConflictError("Tally export content was already registered") from exc
+            raise FinanceConflictError(
+                "external-ledger export content was already registered"
+            ) from exc
         await self._audit(
             s,
             actor_user_id,
-            "tally_import_batches",
+            "ledger_sync_batches",
             row.id,
             "create",
             None,
@@ -188,18 +192,18 @@ class FinanceService:
         )
         return batch_summary(row)
 
-    async def validate_import_batch(
+    async def validate_sync_batch(
         self, s: AsyncSession, *, actor_user_id: UUID, batch_id: UUID
-    ) -> ImportBatchSummary:
+    ) -> LedgerSyncBatchSummary:
         row = await self._batch(s, batch_id)
-        await self._require(s, actor_user_id, "finance.tally.validate", row.legal_entity_id)
+        await self._require(s, actor_user_id, "finance.ledger.validate", row.legal_entity_id)
         if row.status != "pending_validation":
-            raise FinanceConflictError("only a pending import batch may be validated")
+            raise FinanceConflictError("only a pending sync batch may be validated")
         existing_voucher = await s.scalar(
-            select(TallyVoucher.id).where(TallyVoucher.import_batch_id == row.id).limit(1)
+            select(ExternalVoucher.id).where(ExternalVoucher.sync_batch_id == row.id).limit(1)
         )
         if existing_voucher is not None:
-            raise FinanceConflictError("import batch already contains vouchers")
+            raise FinanceConflictError("sync batch already contains vouchers")
         before = {"status": row.status, "version": row.version}
         row.status = "validated"
         row.validation_summary = {"schema_valid": True}
@@ -210,7 +214,7 @@ class FinanceService:
         await self._audit(
             s,
             actor_user_id,
-            "tally_import_batches",
+            "ledger_sync_batches",
             row.id,
             "validate",
             before,
@@ -218,22 +222,22 @@ class FinanceService:
         )
         return batch_summary(row)
 
-    async def import_voucher(
-        self, s: AsyncSession, *, actor_user_id: UUID, batch_id: UUID, data: VoucherCreate
-    ) -> VoucherSummary:
+    async def record_external_voucher(
+        self, s: AsyncSession, *, actor_user_id: UUID, batch_id: UUID, data: ExternalVoucherCreate
+    ) -> ExternalVoucherSummary:
         batch = await self._batch(s, batch_id)
-        await self._require(s, actor_user_id, "finance.tally.import", batch.legal_entity_id)
+        await self._require(s, actor_user_id, "finance.ledger.sync", batch.legal_entity_id)
         if (
             batch.status not in {"validated", "imported"}
             or data.amount < 0
             or len(data.currency_code) != 3
             or not data.currency_code.isupper()
         ):
-            raise FinanceConflictError("voucher or import batch is invalid")
+            raise FinanceConflictError("voucher or sync batch is invalid")
         now = datetime.now(UTC)
-        row = TallyVoucher(
+        row = ExternalVoucher(
             id=uuid4(),
-            import_batch_id=batch.id,
+            sync_batch_id=batch.id,
             legal_entity_id=batch.legal_entity_id,
             project_id=data.project_id,
             external_id=data.external_id,
@@ -267,7 +271,7 @@ class FinanceService:
             await self._audit(
                 s,
                 actor_user_id,
-                "tally_import_batches",
+                "ledger_sync_batches",
                 batch.id,
                 "import",
                 batch_before,
@@ -276,12 +280,12 @@ class FinanceService:
         await self._audit(
             s,
             actor_user_id,
-            "tally_vouchers",
+            "external_vouchers",
             row.id,
             "import",
             None,
             {
-                "import_batch_id": str(batch.id),
+                "sync_batch_id": str(batch.id),
                 "legal_entity_id": str(batch.legal_entity_id),
                 "project_id": str(row.project_id) if row.project_id else None,
                 "amount": str(row.amount),
@@ -300,20 +304,20 @@ class FinanceService:
         await self._require(s, actor_user_id, "finance.reconciliation.create", data.legal_entity_id)
         if (
             data.discrepancy_type not in DISCREPANCIES
-            or (data.erp_amount is not None and data.erp_amount < 0)
-            or (data.tally_amount is not None and data.tally_amount < 0)
+            or (data.atlas_amount is not None and data.atlas_amount < 0)
+            or (data.external_amount is not None and data.external_amount < 0)
         ):
             raise FinanceConflictError("reconciliation discrepancy is invalid")
         now = datetime.now(UTC)
         row = Reconciliation(
             id=uuid4(),
             legal_entity_id=data.legal_entity_id,
-            erp_reference_type=data.erp_reference_type,
-            erp_reference_id=data.erp_reference_id,
-            tally_voucher_id=data.tally_voucher_id,
+            atlas_reference_type=data.atlas_reference_type,
+            atlas_reference_id=data.atlas_reference_id,
+            external_voucher_id=data.external_voucher_id,
             discrepancy_type=data.discrepancy_type,
-            erp_amount=data.erp_amount,
-            tally_amount=data.tally_amount,
+            atlas_amount=data.atlas_amount,
+            external_amount=data.external_amount,
             status="open",
             reviewed_by=None,
             reviewed_at=None,
@@ -340,12 +344,16 @@ class FinanceService:
             None,
             {
                 "legal_entity_id": str(row.legal_entity_id),
-                "erp_reference_type": row.erp_reference_type,
-                "erp_reference_id": str(row.erp_reference_id),
-                "tally_voucher_id": str(row.tally_voucher_id) if row.tally_voucher_id else None,
+                "atlas_reference_type": row.atlas_reference_type,
+                "atlas_reference_id": str(row.atlas_reference_id),
+                "external_voucher_id": str(row.external_voucher_id)
+                if row.external_voucher_id
+                else None,
                 "discrepancy_type": row.discrepancy_type,
-                "erp_amount": str(row.erp_amount) if row.erp_amount is not None else None,
-                "tally_amount": str(row.tally_amount) if row.tally_amount is not None else None,
+                "atlas_amount": str(row.atlas_amount) if row.atlas_amount is not None else None,
+                "external_amount": str(row.external_amount)
+                if row.external_amount is not None
+                else None,
                 "status": row.status,
                 "version": 1,
             },
@@ -402,38 +410,38 @@ class FinanceService:
     # -- reads ------------------------------------------------------------
     # Added 2026-08-20; this module previously published writes only.
     #
-    # Finance is scoped by legal entity, not project: Tally is the statutory
+    # Finance is scoped by legal entity, not project: ERPNext is the statutory
     # book of record per entity, and reconciliation is an entity-level activity.
     # Vouchers are read through their batch so a caller cannot enumerate
     # another entity's ledger by guessing batch ids.
 
-    async def _batch_or_refuse(self, s: AsyncSession, batch_id: UUID) -> TallyImportBatch:
-        row = await s.get(TallyImportBatch, batch_id)
+    async def _batch_or_refuse(self, s: AsyncSession, batch_id: UUID) -> LedgerSyncBatch:
+        row = await s.get(LedgerSyncBatch, batch_id)
         if row is None:
-            raise FinanceNotFoundError(f"import batch {batch_id} does not exist")
+            raise FinanceNotFoundError(f"sync batch {batch_id} does not exist")
         return row
 
-    async def list_import_batches(
+    async def list_sync_batches(
         self, s: AsyncSession, *, actor_user_id: UUID, legal_entity_id: UUID
-    ) -> list[ImportBatchSummary]:
+    ) -> list[LedgerSyncBatchSummary]:
         await self._require(s, actor_user_id, PERM_READ, legal_entity_id)
         result = await s.execute(
-            select(TallyImportBatch)
-            .where(TallyImportBatch.legal_entity_id == legal_entity_id)
-            .where(TallyImportBatch.archived_at.is_(None))
-            .order_by(TallyImportBatch.created_at)
+            select(LedgerSyncBatch)
+            .where(LedgerSyncBatch.legal_entity_id == legal_entity_id)
+            .where(LedgerSyncBatch.archived_at.is_(None))
+            .order_by(LedgerSyncBatch.created_at)
         )
         return [batch_summary(row) for row in result.scalars()]
 
-    async def list_vouchers(
+    async def list_external_vouchers(
         self, s: AsyncSession, *, actor_user_id: UUID, batch_id: UUID
-    ) -> list[VoucherSummary]:
+    ) -> list[ExternalVoucherSummary]:
         batch = await self._batch_or_refuse(s, batch_id)
         await self._require(s, actor_user_id, PERM_READ, batch.legal_entity_id)
         result = await s.execute(
-            select(TallyVoucher)
-            .where(TallyVoucher.import_batch_id == batch_id)
-            .order_by(TallyVoucher.voucher_date)
+            select(ExternalVoucher)
+            .where(ExternalVoucher.sync_batch_id == batch_id)
+            .order_by(ExternalVoucher.voucher_date)
         )
         return [voucher_summary(row) for row in result.scalars()]
 

@@ -8,13 +8,13 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from atlas.modules.finance.schemas import (
-    ImportBatchCreate,
-    ImportBatchSummary,
+    ExternalVoucherCreate,
+    ExternalVoucherSummary,
+    LedgerSyncBatchCreate,
+    LedgerSyncBatchSummary,
     ReconciliationCreate,
     ReconciliationReview,
     ReconciliationSummary,
-    VoucherCreate,
-    VoucherSummary,
 )
 
 
@@ -31,15 +31,15 @@ class FinanceConflictError(Exception):
 
 
 class FinanceContract(Protocol):
-    async def create_import_batch(
-        self, s: AsyncSession, *, actor_user_id: UUID, data: ImportBatchCreate
-    ) -> ImportBatchSummary: ...
-    async def validate_import_batch(
+    async def create_sync_batch(
+        self, s: AsyncSession, *, actor_user_id: UUID, data: LedgerSyncBatchCreate
+    ) -> LedgerSyncBatchSummary: ...
+    async def validate_sync_batch(
         self, s: AsyncSession, *, actor_user_id: UUID, batch_id: UUID
-    ) -> ImportBatchSummary: ...
-    async def import_voucher(
-        self, s: AsyncSession, *, actor_user_id: UUID, batch_id: UUID, data: VoucherCreate
-    ) -> VoucherSummary: ...
+    ) -> LedgerSyncBatchSummary: ...
+    async def record_external_voucher(
+        self, s: AsyncSession, *, actor_user_id: UUID, batch_id: UUID, data: ExternalVoucherCreate
+    ) -> ExternalVoucherSummary: ...
     async def create_reconciliation(
         self, s: AsyncSession, *, actor_user_id: UUID, data: ReconciliationCreate
     ) -> ReconciliationSummary: ...
@@ -51,12 +51,12 @@ class FinanceContract(Protocol):
         reconciliation_id: UUID,
         data: ReconciliationReview,
     ) -> ReconciliationSummary: ...
-    async def list_import_batches(
+    async def list_sync_batches(
         self, s: AsyncSession, *, actor_user_id: UUID, legal_entity_id: UUID
-    ) -> list[ImportBatchSummary]: ...
-    async def list_vouchers(
+    ) -> list[LedgerSyncBatchSummary]: ...
+    async def list_external_vouchers(
         self, s: AsyncSession, *, actor_user_id: UUID, batch_id: UUID
-    ) -> list[VoucherSummary]: ...
+    ) -> list[ExternalVoucherSummary]: ...
     async def list_reconciliations(
         self, s: AsyncSession, *, actor_user_id: UUID, legal_entity_id: UUID
     ) -> list[ReconciliationSummary]: ...

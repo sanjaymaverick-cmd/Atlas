@@ -41,7 +41,7 @@ from atlas.modules.documents.schemas import (
     RevisionCreate,
     RevisionSummary,
 )
-from atlas.modules.finance.schemas import ImportBatchCreate, ImportBatchSummary
+from atlas.modules.finance.schemas import LedgerSyncBatchCreate, LedgerSyncBatchSummary
 from atlas.modules.identity.contracts import InvalidCeremonyError
 from atlas.modules.identity.schemas import (
     AuthenticationOutcome,
@@ -529,14 +529,15 @@ class FakeCustomerLifecycle:
 
 class FakeFinance:
     def __init__(self) -> None:
-        self.calls: list[ImportBatchCreate] = []
+        self.calls: list[LedgerSyncBatchCreate] = []
 
-    async def create_import_batch(
-        self, session: object, *, actor_user_id: UUID, data: ImportBatchCreate
-    ) -> ImportBatchSummary:
+    async def create_sync_batch(
+        self, session: object, *, actor_user_id: UUID, data: LedgerSyncBatchCreate
+    ) -> LedgerSyncBatchSummary:
         self.calls.append(data)
-        return ImportBatchSummary(
+        return LedgerSyncBatchSummary(
             uuid4(),
+            "erpnext",
             data.legal_entity_id,
             data.source_document_id,
             data.content_sha256,
@@ -1124,20 +1125,20 @@ async def test_phase8_booking_route_accepts_ids_and_rejects_embedded_pii() -> No
     assert sessions.sessions[0].commits == 1
 
 
-async def test_phase9_tally_import_route_accepts_controlled_evidence_only() -> None:
+async def test_phase9_ledger_sync_route_accepts_controlled_evidence_only() -> None:
     finance = FakeFinance()
     client, _, sessions = build_client(finance=finance)
     async with client:
         accepted = await client.post(
-            f"/api/v1/legal-entities/{ENTITY_ID}/tally-imports",
+            f"/api/v1/legal-entities/{ENTITY_ID}/ledger-sync-batches",
             json={"source_document_id": str(DOCUMENT_ID), "content_sha256": "a" * 64},
         )
         rejected = await client.post(
-            f"/api/v1/legal-entities/{ENTITY_ID}/tally-imports",
+            f"/api/v1/legal-entities/{ENTITY_ID}/ledger-sync-batches",
             json={
                 "source_document_id": str(DOCUMENT_ID),
                 "content_sha256": "a" * 64,
-                "raw_tally_export": "SYNTHETIC-PRIVATE-ACCOUNTING-DATA",
+                "raw_erpnext_export": "SYNTHETIC-PRIVATE-ACCOUNTING-DATA",
             },
         )
     assert accepted.status_code == 201

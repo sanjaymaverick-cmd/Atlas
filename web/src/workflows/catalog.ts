@@ -737,16 +737,16 @@ export const CATALOG: WorkflowGroup[] = [
   },
   {
     phase: "Phase 9",
-    title: "Tally reconciliation",
+    title: "external-ledger reconciliation",
     blurb:
-      "Tally stays the statutory book of record — Atlas can neither post nor amend a voucher.",
+      "ERPNext stays the statutory book of record — Atlas can neither post nor amend a voucher.",
     workflows: [
       {
-        key: "tally-import",
-        title: "Register a Tally export",
+        key: "ledger-sync",
+        title: "Register a external-ledger export",
         description: "The export itself stays in a restricted Documents record.",
         scope: "entity",
-        path: (s) => `/api/v1/legal-entities/${s.entity}/tally-imports`,
+        path: (s) => `/api/v1/legal-entities/${s.entity}/ledger-sync-batches`,
         fields: [
           { name: "source_document_id", label: "Source document ID", kind: "uuid", required: true },
           {
@@ -762,19 +762,19 @@ export const CATALOG: WorkflowGroup[] = [
         submitLabel: "Register export",
       },
       {
-        key: "tally-validate",
+        key: "ledger-validate",
         title: "Validate an import batch",
         scope: "none",
-        path: (_s, v) => `/api/v1/tally-imports/${v["__id"] ?? ""}/validate`,
+        path: (_s, v) => `/api/v1/ledger-sync-batches/${v["__id"] ?? ""}/validate`,
         fields: [targetId("Batch ID")],
         pathFields: ["__id"],
         submitLabel: "Validate",
       },
       {
-        key: "tally-voucher",
+        key: "external-voucher",
         title: "Ingest a normalised voucher",
         scope: "none",
-        path: (_s, v) => `/api/v1/tally-imports/${v["__id"] ?? ""}/vouchers`,
+        path: (_s, v) => `/api/v1/ledger-sync-batches/${v["__id"] ?? ""}/vouchers`,
         fields: [
           targetId("Batch ID"),
           { name: "external_id", label: "External ID", kind: "text", required: true },
@@ -794,16 +794,16 @@ export const CATALOG: WorkflowGroup[] = [
         scope: "entity",
         path: (s) => `/api/v1/legal-entities/${s.entity}/reconciliations`,
         fields: [
-          { name: "erp_reference_type", label: "ERP reference type", kind: "text", required: true },
-          { name: "erp_reference_id", label: "ERP reference ID", kind: "uuid", required: true },
+          { name: "atlas_reference_type", label: "ERP reference type", kind: "text", required: true },
+          { name: "atlas_reference_id", label: "ERP reference ID", kind: "uuid", required: true },
           {
             name: "discrepancy_type",
             label: "Discrepancy type",
             kind: "select",
             required: true,
             options: [
-              "missing_in_tally",
-              "missing_in_erp",
+              "missing_in_external_ledger",
+              "missing_in_atlas",
               "amount_mismatch",
               "wrong_entity",
               "wrong_project",
@@ -813,8 +813,8 @@ export const CATALOG: WorkflowGroup[] = [
               "obligation_still_open",
             ],
           },
-          { name: "erp_amount", label: "ERP amount", kind: "number" },
-          { name: "tally_amount", label: "Tally amount", kind: "number" },
+          { name: "atlas_amount", label: "ERP amount", kind: "number" },
+          { name: "external_amount", label: "External amount", kind: "number" },
         ],
         submitLabel: "Raise case",
       },

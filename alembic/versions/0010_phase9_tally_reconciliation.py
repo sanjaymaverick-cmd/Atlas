@@ -1,4 +1,4 @@
-"""Add Phase 9 Tally reconciliation integrity.
+"""Add Phase 9 external-ledger reconciliation integrity.
 
 Revision ID: 0010_phase9_tally_reconciliation
 Revises: 0009_phase8_customer_lifecycle

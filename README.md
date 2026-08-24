@@ -2,7 +2,8 @@
 
 Private, self-hosted operating platform for a multi-entity real estate
 development group. See `docs/ERP_Technical_Blueprint_v2.docx` for the full
-architecture and `db/schema.sql` for the PostgreSQL schema.
+architecture, `PROJECT_GOAL.md` for the current ERPNext-focused goal, and
+`db/schema.sql` for the PostgreSQL schema.
 
 ## Status
 
@@ -93,9 +94,9 @@ passed; CI always runs them against PostgreSQL 16.
 
 ### Next
 
-Continue with the Phase 9 accounting integration decision and integrity audit.
-Evaluate ERPNext as a separately deployed accounting system behind Atlas's
-published finance adapter instead of assuming a Tally export format. Real
+Continue with the Phase 9 ERPNext read-only proof of concept described in
+`docs/erpnext-integration-build-plan.md`. ERPNext is a separately deployed
+statutory ledger behind Atlas's provider-neutral External Ledger contract. Real
 WebAuthn UAT, encrypted production object storage, malware-scanner
 selection, staging, and DR provisioning remain pre-launch gates tracked in
 `docs/production-readiness-todo.md`.
@@ -241,9 +242,9 @@ booking's installment, and downstream financial/legal records block direct
 booking cancellation. APIs accept controlled Documents IDs,
 not embedded PII, bank credentials, signatures, or provider payloads.
 
-Phase 9 operations cover controlled Tally export registration, validation,
+Phase 9 operations cover controlled external-ledger sync registration, validation,
 normalized voucher ingestion, discrepancy cases, and accountant review under
-`/api/v1`. Tally remains the statutory book of record: Atlas cannot post or
+`/api/v1`. ERPNext is the statutory book of record: Atlas currently cannot post or
 amend vouchers. Source exports stay in restricted Documents records; APIs and
 audit events retain only controlled document IDs, SHA-256 provenance, normalized
 facts, and redacted indicators for ledger, voucher, and resolution narratives.

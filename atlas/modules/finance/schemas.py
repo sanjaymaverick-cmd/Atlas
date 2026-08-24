@@ -9,7 +9,7 @@ from uuid import UUID
 
 
 @dataclass(frozen=True, slots=True)
-class ImportBatchCreate:
+class LedgerSyncBatchCreate:
     legal_entity_id: UUID
     source_document_id: UUID
     content_sha256: str
@@ -18,8 +18,9 @@ class ImportBatchCreate:
 
 
 @dataclass(frozen=True, slots=True)
-class ImportBatchSummary:
+class LedgerSyncBatchSummary:
     id: UUID
+    provider: str
     legal_entity_id: UUID
     source_document_id: UUID
     content_sha256: str
@@ -31,7 +32,7 @@ class ImportBatchSummary:
 
 
 @dataclass(frozen=True, slots=True)
-class VoucherCreate:
+class ExternalVoucherCreate:
     external_id: str
     voucher_type: str
     voucher_number: str
@@ -43,9 +44,9 @@ class VoucherCreate:
 
 
 @dataclass(frozen=True, slots=True)
-class VoucherSummary:
+class ExternalVoucherSummary:
     id: UUID
-    import_batch_id: UUID
+    sync_batch_id: UUID
     legal_entity_id: UUID
     project_id: UUID | None
     external_id: str
@@ -61,12 +62,12 @@ class VoucherSummary:
 @dataclass(frozen=True, slots=True)
 class ReconciliationCreate:
     legal_entity_id: UUID
-    erp_reference_type: str
-    erp_reference_id: UUID
+    atlas_reference_type: str
+    atlas_reference_id: UUID
     discrepancy_type: str
-    tally_voucher_id: UUID | None = None
-    erp_amount: Decimal | None = None
-    tally_amount: Decimal | None = None
+    external_voucher_id: UUID | None = None
+    atlas_amount: Decimal | None = None
+    external_amount: Decimal | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,12 +81,12 @@ class ReconciliationReview:
 class ReconciliationSummary:
     id: UUID
     legal_entity_id: UUID
-    erp_reference_type: str
-    erp_reference_id: UUID
-    tally_voucher_id: UUID | None
+    atlas_reference_type: str
+    atlas_reference_id: UUID
+    external_voucher_id: UUID | None
     discrepancy_type: str
-    erp_amount: Decimal | None
-    tally_amount: Decimal | None
+    atlas_amount: Decimal | None
+    external_amount: Decimal | None
     status: str
     reviewed_by: UUID | None
     reviewed_at: datetime | None

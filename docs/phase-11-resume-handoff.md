@@ -53,7 +53,7 @@ Updated: 2026-08-24 (Asia/Calcutta)
   paths. Post-change verification passed 350 tests against real PostgreSQL with
   zero skips, Ruff, strict mypy over 157 files, all 25 import contracts,
   Bandit, pip-audit, and the sole Alembic head.
-- Phase 9 validation now refuses a pending Tally batch if voucher rows already
+- Phase 9 validation now refuses a pending ERPNext batch if voucher rows already
   exist. Validation and voucher import serialize on the batch row. PostgreSQL
   tests prove contaminated-batch refusal, clean commit with one valid audit
   event, and explicit rollback. Post-change verification passed 353 tests
@@ -223,10 +223,9 @@ Updated: 2026-08-24 (Asia/Calcutta)
   contracts, Bandit, pip-audit, the sole Alembic head, 7 web tests, the
   production web build, and npm audit also passed. Commit and push Phase 8,
   then resolve the accounting-system decision before Phase 9 implementation.
-- Before Phase 9 implementation, resolve the new owner proposal to use ERPNext
-  instead of Tally. The current recommendation and TODO boundary are to retain
-  Atlas as the security/audit/domain control plane and integrate a separately
-  deployed ERPNext instance through a published finance adapter. Do not convert
+- The owner selected ERPNext for Phase 9. Retain Atlas as the security, audit,
+  and domain control plane and integrate a separately deployed ERPNext instance
+  through the provider-neutral External Ledger adapter. Do not convert
   the repository to Frappe or make ERPNext authoritative without a separately
   approved architecture and migration decision.
 - Phase 11 remains blocked at the owner-only Blueprint section 25 AI-hosting

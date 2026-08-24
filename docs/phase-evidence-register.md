@@ -69,7 +69,7 @@ the Phase 3-10 invariant tests were added.
 | 6 — project controls | `project_controls` | 0 → **1** | 3 | 1 |
 | 7 — change control | `change_control` | 0 → **1** | 4 | 1 |
 | 8 — customer lifecycle | `customer_lifecycle` | 0 → **1** | 3 | 1 |
-| 9 — Tally reconciliation | `finance` | 0 → **1** | 3 | 1 |
+| 9 — external-ledger reconciliation | `finance` | 0 → **1** | 3 | 1 |
 | 10 — reporting | `reporting` | 0 → **1** | 4 | 1 |
 | 11 — AI safety | `ai_assistant` | **0** | 19 | 1 |
 | cross-cutting | schema / migrations | **1** | — | — |
@@ -266,7 +266,7 @@ rest are still open, and they are the ones that matter for a sign-off.
   voucher guard are now covered. Validation and voucher import both lock the
   batch row; PostgreSQL tests prove a contaminated pending batch is refused
   unchanged and clean validation commits or rolls back with its audit event.
-  Background parsing, full-file completeness, and production Tally integration
+  Background parsing, full-file completeness, and production ERPNext integration
   remain deployment/workflow gates.
 - **Phase 10** — the project-scope check on report requests and the distinct
   reporting-database read path are now covered. The latter test provisions two

@@ -9,7 +9,7 @@ reporting database URLs; aggregate queries receive only the reporting session.
 - `reporting.mv_ceo_project_summary` aggregates project financial, collection,
   delivery, compliance, reconciliation, and unit-state measures from opaque IDs
   and non-negative facts. It contains no identity, contact, tax, bank, document,
-  free-form narrative, or raw Tally fields.
+  free-form narrative, or raw ERPNext fields.
 - Materialized-view totals use independent aggregates to prevent join
   multiplication. A unique project index supports concurrent refresh design.
 - Project and legal-entity dashboards authorize against the transactional
