@@ -1,7 +1,7 @@
 # Open-source accounting alternatives for Atlas
 
-**Decision status:** research recommendation, not an implementation decision.  
-**Reviewed:** 24 August 2026.  
+**Decision status:** research recommendation, not an implementation decision.
+**Reviewed:** 24 August 2026.
 **Scope:** self-hosted accounting ledgers that Atlas could integrate with instead of paid Tally. This review uses vendor/project primary sources. “Open source” describes the software licence, not the cost of hosting, implementation, support, statutory gateways, or upgrades.
 
 ## Executive recommendation
@@ -112,4 +112,3 @@ Use a disposable deployment and synthetic Indian construction fixtures only. Pil
 - Approve per-entity integration identities, data minimization, retention, backup, data residency, breach response and administrator-access policy.
 - Approve cutover date, historic depth, parallel-run period, reconciliation tolerances and archival access to Tally.
 - Decide whether attachments remain solely in Atlas evidence storage or are copied into the ledger, and document the resulting privacy/retention boundary.
-
