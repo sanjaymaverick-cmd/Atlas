@@ -13,7 +13,12 @@ Gate: baseline schema, upgraded schema, service contracts, API tests, and archit
 
 ## 9B — ERPNext read-only proof of concept
 
-- Implement a narrow authenticated ERPNext HTTP adapter with bounded timeouts, TLS verification, pagination, response-size limits, and redacted errors.
+- [x] Implement the narrow authenticated HTTP construction boundary using
+  `SecretsProvider`, HTTPS enforcement, a localhost-only development exception,
+  redirect refusal, bounded timeouts/connections, streamed response-size limits,
+  snapshot-preserving pagination cursors, and redacted errors.
+- [ ] Wire the adapter into a background sync worker; no API request may perform
+  a long-running ERPNext synchronization inline.
 - Read synthetic Company/account/project and submitted voucher facts from a pinned supported ERPNext version.
 - Normalize provider data into External Vouchers without storing unrestricted payloads.
 - Verify reruns are idempotent and failed pages cannot mark a batch complete.

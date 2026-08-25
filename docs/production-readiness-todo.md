@@ -740,6 +740,18 @@ instance. None was introduced by Phase 11; all predate it.
 - [ ] Approve ERPNext service-user custody, token rotation, HTTPS trust, outbound
   network allow-list, per-environment/company isolation, request timeouts, rate
   limits, response-size ceilings, retry budget, circuit breaker, and sanitized telemetry.
+  Provisional code boundary implemented 2026-08-25: credentials are resolved
+  through `SecretsProvider`; HTTPS is mandatory except for an explicit localhost
+  development flag; redirects are disabled; timeouts, connection count, page size,
+  cursor offset, and streamed response bytes are bounded; provider bodies are
+  excluded from raised errors. Production values and the real secrets backend
+  remain owner/security gates.
+- [ ] Approve the synchronization watermark and late-arriving-record policy.
+  The adapter currently freezes a UTC `creation` watermark across every page in
+  an opaque cursor, preventing newly created ERPNext documents from shifting an
+  in-progress offset window. The pinned ERPNext proof of concept must demonstrate
+  server-clock behavior, deterministic ordering, deletion/cancellation handling,
+  and the next-run catch-up rule before this becomes production policy.
 - [ ] Validate India Compliance and every GST/e-invoice/e-way-bill dependency,
   including GSP contracts, data residency, consent, retention, outage behavior,
   and whether historical acknowledgements can be migrated without misstatement.

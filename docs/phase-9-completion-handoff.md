@@ -17,7 +17,18 @@ The former provider-specific reconciliation slice has been redesigned around a p
 - Discrepancies use `missing_in_external_ledger` and `missing_in_atlas`.
 - `0019_erpnext_external_ledger` migrates databases created under the former names while preserving the historical Alembic revision chain.
 - `ExternalLedger` is the narrow provider-neutral contract; `ERPNextLedgerAdapter` is a bounded, read-only HTTP implementation with synthetic contract tests.
+- `ERPNextConnectionConfig` constructs the client from `SecretsProvider`
+  references. It requires HTTPS except for an explicit localhost development
+  exception, refuses redirects, bounds timeouts/connections and response bytes,
+  and never accepts credentials through an Atlas HTTP request.
+- Pagination freezes a UTC creation watermark in an opaque cursor, so records
+  created during a multi-page run do not shift its offset window. The future
+  worker must persist the cursor and fail closed on missing or partial pages.
 
 ## Next gate
 
-Complete Stage 9B from `erpnext-integration-build-plan.md` against a disposable, pinned local ERPNext + India Compliance environment. Prove pagination completeness, stable watermarks, authentication/secret injection, replay, partial failure, version compatibility, and reconciliation using synthetic data. Do not add live credentials or enable write-back.
+Continue Stage 9B from `erpnext-integration-build-plan.md`: add the durable
+background sync state machine, then verify it against a disposable, pinned local
+ERPNext + India Compliance environment. Prove pagination completeness, replay,
+partial failure, version compatibility, and reconciliation using synthetic data.
+Do not add live credentials or enable write-back.
