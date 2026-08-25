@@ -28,6 +28,10 @@ dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
     "pytest-cov>=6.0",
+    # Several PostgreSQL integration modules use psycopg's synchronous client
+    # for fixture setup and invariant checks. Declare it here so clean CI/test
+    # environments do not fail during collection.
+    "psycopg[binary]>=3.2,<4",
     "httpx>=0.28",
     "ruff>=0.8",
     "mypy>=1.13",
