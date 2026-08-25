@@ -1,0 +1,32 @@
+{
+  "name": "atlas-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Atlas ERP web client. Private and self-hosted; not for publication.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^7.18.2"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.6",
+    "@types/node": "^24.10.1",
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^6.1.0",
+    "fake-indexeddb": "^6.2.4",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.6.3",
+    "vite": "^8.2.2",
+    "vitest": "^4.1.11"
+  }
+}
